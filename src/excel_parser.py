@@ -85,32 +85,54 @@ def parse_excel_file(file_path: Path) -> PortfolioData:
         raise ValueError(f"Period not found in row 6 of {file_path}")
     period = str(period_value).strip()
     
-    # Validate headers in row 7
-    expected_headers = ["Ticker", "Security Name", "Port. Ending Weight", 
-                        "Contribution To Return", "GICS"]
-    actual_headers = [ws.cell(row=7, column=i).value for i in range(1, 6)]
+    # Find column indices by scanning row 7 for headers
+    # Security Name header may be blank, but it's always left of Ticker
+    col_map = {}
+    ticker_col = None
     
-    if actual_headers != expected_headers:
-        raise ValueError(
-            f"Header mismatch in {file_path}. "
-            f"Expected: {expected_headers}, Got: {actual_headers}"
-        )
+    for col in range(1, ws.max_column + 1):
+        header = ws.cell(row=7, column=col).value
+        if header:
+            header_str = str(header).strip()
+            if header_str == "Ticker":
+                col_map["Ticker"] = col
+                ticker_col = col
+            elif header_str == "Security Name":
+                col_map["Security Name"] = col
+            elif header_str == "Port. Ending Weight":
+                col_map["Port. Ending Weight"] = col
+            elif header_str == "Contribution To Return":
+                col_map["Contribution To Return"] = col
+            elif header_str == "GICS":
+                col_map["GICS"] = col
+    
+    # Validate required columns found
+    required_cols = ["Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+    missing = [c for c in required_cols if c not in col_map]
+    if missing:
+        raise ValueError(f"Missing required columns in {file_path}: {missing}")
+    
+    # If Security Name header not found, use column left of Ticker
+    if "Security Name" not in col_map and ticker_col and ticker_col > 1:
+        col_map["Security Name"] = ticker_col - 1
+    elif "Security Name" not in col_map:
+        col_map["Security Name"] = None  # Will default to empty string
     
     # Parse data rows starting at row 10
     securities = []
     row_num = 10
     
     while True:
-        ticker = ws.cell(row=row_num, column=1).value
+        ticker = ws.cell(row=row_num, column=col_map["Ticker"]).value
         
         # Stop at first blank ticker (end of table)
         if ticker is None or str(ticker).strip() == "":
             break
         
-        security_name = ws.cell(row=row_num, column=2).value
-        port_ending_weight = ws.cell(row=row_num, column=3).value
-        contribution_to_return = ws.cell(row=row_num, column=4).value
-        gics = ws.cell(row=row_num, column=5).value
+        security_name = ws.cell(row=row_num, column=col_map["Security Name"]).value if col_map["Security Name"] else ""
+        port_ending_weight = ws.cell(row=row_num, column=col_map["Port. Ending Weight"]).value
+        contribution_to_return = ws.cell(row=row_num, column=col_map["Contribution To Return"]).value
+        gics = ws.cell(row=row_num, column=col_map["GICS"]).value
         
         # Parse numeric values (handle potential None or string values)
         try:

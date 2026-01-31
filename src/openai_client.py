@@ -116,6 +116,45 @@ class OpenAIClient:
         jitter = backoff * self.rate_limit.jitter_factor
         return backoff + random.uniform(-jitter, jitter)
     
+    def _clean_inline_citations(self, text: str, url_to_footnote: dict[str, int]) -> str:
+        """
+        Clean inline citation URLs from text and replace with footnote markers.
+        
+        Handles patterns like:
+        - ((domain](https://...))
+        - ([domain](https://...))
+        - [text](https://...)
+        - ((https://...))
+        """
+        import re
+        
+        # Replace markdown-style links [text](url) with [N] footnote
+        def replace_markdown_link(match):
+            url = match.group(2)
+            # Find the footnote number for this URL
+            for stored_url, num in url_to_footnote.items():
+                if stored_url in url or url in stored_url:
+                    return f"[{num}]"
+            # URL not in our list, just remove the link formatting
+            return match.group(1)
+        
+        # Pattern for markdown links: [text](url)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_markdown_link, text)
+        
+        # Remove double parentheses around remaining URLs: ((url))
+        text = re.sub(r'\(\(https?://[^)]+\)\)', '', text)
+        
+        # Remove any remaining bare URLs in parentheses: (https://...)
+        text = re.sub(r'\(https?://[^)]+\)', '', text)
+        
+        # Clean up any double spaces left behind
+        text = re.sub(r'  +', ' ', text)
+        
+        # Clean up space before punctuation
+        text = re.sub(r' ([.,;:!?])', r'\1', text)
+        
+        return text.strip()
+    
     async def _make_request(
         self,
         client: httpx.AsyncClient,
@@ -260,21 +299,32 @@ class OpenAIClient:
             
             # Extract citations from url_citation annotations
             # These are provided by the web search tool
+            # Sort by start_index to maintain order of appearance
+            url_annotations = [
+                ann for ann in annotations 
+                if ann.get("type") == "url_citation"
+            ]
+            url_annotations.sort(key=lambda x: x.get("start_index", 0))
+            
             citations = []
             seen_urls = set()
+            url_to_footnote = {}  # Map URL to footnote number
             
-            for ann in annotations:
-                if ann.get("type") == "url_citation":
-                    url = ann.get("url", "")
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        citations.append(Citation(
-                            url=url,
-                            title=ann.get("title", "")
-                        ))
+            for ann in url_annotations:
+                url = ann.get("url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    footnote_num = len(citations) + 1
+                    url_to_footnote[url] = footnote_num
+                    citations.append(Citation(
+                        url=url,
+                        title=ann.get("title", "")
+                    ))
             
-            # The content is the plain text commentary
+            # Clean up inline citation URLs from commentary text
+            # Replace patterns like ((domain](url)) or ([domain](url)) with footnote [N]
             commentary = content.strip()
+            commentary = self._clean_inline_citations(commentary, url_to_footnote)
             
             if not commentary:
                 return CommentaryResult(
