@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import random
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Callable
@@ -170,6 +171,51 @@ class OpenAIClient:
         text = re.sub(r' ([.,;:!?])', r'\1', text)
         
         return text.strip()
+
+    async def _poll_response_status(
+        self,
+        client: httpx.AsyncClient,
+        response_id: str,
+        headers: dict,
+        max_wait: float,
+        poll_interval: float = 2.0
+    ) -> dict:
+        """
+        Poll the Responses API for completion status.
+
+        Args:
+            client: httpx async client
+            response_id: Response ID returned by the API
+            headers: Request headers
+            max_wait: Maximum total wait time in seconds
+            poll_interval: Seconds between status checks
+
+        Returns:
+            Final API response as dict
+        """
+        start = time.monotonic()
+        while True:
+            elapsed = time.monotonic() - start
+            if elapsed > max_wait:
+                raise httpx.TimeoutException(
+                    f"Polling timeout after {max_wait:.1f}s for response {response_id}"
+                )
+
+            status_response = await client.get(
+                f"{self.base_url}/responses/{response_id}",
+                headers=headers,
+                timeout=30.0
+            )
+            status_response.raise_for_status()
+            data = status_response.json()
+            status = data.get("status", "")
+
+            if status in {"completed", "succeeded"}:
+                return data
+            if status in {"failed", "cancelled", "expired"}:
+                return data
+
+            await asyncio.sleep(poll_interval)
     
     async def _make_request(
         self,
@@ -218,6 +264,15 @@ class OpenAIClient:
                 web_search_config["search_context_size"] = "medium"
             payload["tools"] = [web_search_config]
         
+        # Determine timeout based on thinking level
+        # High reasoning can take 2-5 minutes, medium 1-2 minutes, low <1 minute
+        timeout_map = {
+            "low": 120.0,      # 2 minutes
+            "medium": 300.0,   # 5 minutes
+            "high": 600.0      # 10 minutes
+        }
+        timeout = timeout_map.get(thinking_level, 300.0)
+        
         max_retries = 5
         for attempt in range(max_retries):
             try:
@@ -225,7 +280,7 @@ class OpenAIClient:
                     f"{self.base_url}/responses",
                     headers=headers,
                     json=payload,
-                    timeout=90.0
+                    timeout=timeout
                 )
                 
                 if response.status_code == 429:
@@ -235,6 +290,7 @@ class OpenAIClient:
                         wait_time = float(retry_after)
                     else:
                         wait_time = self._calculate_backoff(attempt)
+                    print(f"Rate limited (429). Waiting {wait_time:.1f}s before retry...")
                     await asyncio.sleep(wait_time)
                     continue
                 
@@ -244,17 +300,37 @@ class OpenAIClient:
                     print(f"API Error {response.status_code}: {error_body}")
                 
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                status = data.get("status", "")
+                response_id = data.get("id", "")
+
+                # If the response is not yet completed but includes an id, poll for completion
+                if response_id and status in {"queued", "in_progress", "running"}:
+                    return await self._poll_response_status(
+                        client=client,
+                        response_id=response_id,
+                        headers=headers,
+                        max_wait=timeout
+                    )
+
+                return data
                 
+            except httpx.TimeoutException as e:
+                # For timeout errors, don't retry - the request is likely still processing
+                print(f"Request timeout after {timeout}s. The request may still be processing on the server.")
+                raise
             except httpx.HTTPStatusError as e:
                 if attempt < max_retries - 1:
                     wait_time = self._calculate_backoff(attempt)
+                    print(f"HTTP error {e.response.status_code}. Retrying in {wait_time:.1f}s...")
                     await asyncio.sleep(wait_time)
                 else:
                     raise
             except httpx.RequestError as e:
+                # Network errors (connection failures, etc.)
                 if attempt < max_retries - 1:
                     wait_time = self._calculate_backoff(attempt)
+                    print(f"Network error: {e}. Retrying in {wait_time:.1f}s...")
                     await asyncio.sleep(wait_time)
                 else:
                     raise
