@@ -364,8 +364,7 @@ class OpenAIClient:
         security_name: str,
         prompt: str,
         portcode: str = "",
-        use_web_search: bool = True,
-        require_citations: bool = True
+        use_web_search: bool = True
     ) -> CommentaryResult:
         """
         Generate commentary for a single security.
@@ -376,7 +375,6 @@ class OpenAIClient:
             prompt: Formatted prompt
             portcode: Portfolio code (for internal tracking)
             use_web_search: Whether to enable web search
-            require_citations: Whether citations are required
             
         Returns:
             CommentaryResult with commentary and citations
@@ -393,10 +391,10 @@ class OpenAIClient:
                 result = self._parse_response(response, ticker, security_name)
                 result.request_key = request_key
                 
-                # Validate citations requirement
-                if require_citations and result.success and not result.citations:
-                    # Don't fail, just note it
-                    pass
+                # Validate citations are present
+                if result.success and not result.citations:
+                    result.success = False
+                    result.error_message = "No citations found in response (citations are required)"
                 
                 return result
                 
@@ -414,8 +412,7 @@ class OpenAIClient:
     async def generate_commentary_batch(
         self,
         requests: list[dict],
-        use_web_search: bool = True,
-        require_citations: bool = True
+        use_web_search: bool = True
     ) -> list[CommentaryResult]:
         """
         Generate commentary for multiple securities with bounded concurrency.
@@ -423,7 +420,6 @@ class OpenAIClient:
         Args:
             requests: List of dicts with keys: ticker, security_name, prompt, portcode
             use_web_search: Whether to enable web search
-            require_citations: Whether citations are required
             
         Returns:
             List of CommentaryResult objects
@@ -441,8 +437,7 @@ class OpenAIClient:
                     security_name=req["security_name"],
                     prompt=req["prompt"],
                     portcode=req.get("portcode", ""),
-                    use_web_search=use_web_search,
-                    require_citations=require_citations
+                    use_web_search=use_web_search
                 )
                 completed += 1
                 if self.progress_callback:

@@ -130,19 +130,14 @@ class CommentaryGeneratorApp:
                                          values=["5", "10"], state="readonly", width=10)
         self.count_combo.grid(row=1, column=1, sticky="w", pady=(5, 0))
         
-        # Citations mode
-        ttk.Label(settings_frame, text="Require Citations:").grid(row=2, column=0, sticky="w", padx=(0, 10), pady=(5, 0))
-        self.citations_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(settings_frame, variable=self.citations_var).grid(row=2, column=1, sticky="w", pady=(5, 0))
-        
         # Preferred sources
-        ttk.Label(settings_frame, text="Preferred Sources:").grid(row=3, column=0, sticky="nw", padx=(0, 10), pady=(5, 0))
+        ttk.Label(settings_frame, text="Preferred Sources:").grid(row=2, column=0, sticky="nw", padx=(0, 10), pady=(5, 0))
         self.sources_var = tk.StringVar(value=", ".join(get_default_preferred_sources()))
         sources_entry = ttk.Entry(settings_frame, textvariable=self.sources_var)
-        sources_entry.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(5, 0))
+        sources_entry.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(5, 0))
         
         ttk.Label(settings_frame, text="(comma-separated domains)", 
-                  font=("TkDefaultFont", 9)).grid(row=4, column=1, sticky="w")
+                  font=("TkDefaultFont", 9)).grid(row=3, column=1, sticky="w")
         
         current_row += 1
         
@@ -350,8 +345,7 @@ class CommentaryGeneratorApp:
         sources = [s.strip() for s in self.sources_var.get().split(",") if s.strip()]
         prompt_config = PromptConfig(
             template=self.prompt_text.get("1.0", tk.END).strip(),
-            preferred_sources=sources,
-            require_citations=self.citations_var.get()
+            preferred_sources=sources
         )
         prompt_manager = PromptManager(prompt_config)
         
@@ -388,8 +382,7 @@ class CommentaryGeneratorApp:
         # Generate commentary (batch)
         results = await client.generate_commentary_batch(
             all_requests,
-            use_web_search=True,
-            require_citations=self.citations_var.get()
+            use_web_search=True
         )
         
         # Organize results by portfolio
