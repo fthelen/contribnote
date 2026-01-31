@@ -37,6 +37,7 @@ class PromptConfig:
     template: str = DEFAULT_PROMPT_TEMPLATE
     preferred_sources: list[str] = field(default_factory=list)
     additional_instructions: str = ""
+    thinking_level: str = "medium"
 
 
 class PromptManager:

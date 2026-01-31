@@ -5,6 +5,7 @@ Simple tkinter-based GUI for non-technical users.
 """
 
 import asyncio
+import json
 import os
 import sys
 import threading
@@ -26,6 +27,145 @@ from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, D
 from src.output_generator import create_output_workbook, create_log_file
 
 
+class PromptEditorModal:
+    """Modal window for editing prompt template, system prompt, and thinking level."""
+    
+    def __init__(self, parent: tk.Tk, current_prompt: str, current_developer_prompt: str, current_thinking_level: str):
+        """
+        Initialize the modal window.
+        
+        Args:
+            parent: Parent window
+            current_prompt: Current prompt template text
+            current_developer_prompt: Current system/developer prompt text
+            current_thinking_level: Current thinking level ("low", "medium", "high")
+        """
+        self.result = None  # Will be set to dict if user saves
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("Edit Prompts & Thinking Level")
+        self.window.geometry("700x650")
+        self.window.transient(parent)
+        self.window.grab_set()
+        
+        main_frame = ttk.Frame(self.window, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+        
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
+        
+        # Thinking level section
+        level_frame = ttk.LabelFrame(main_frame, text="Thinking Level (Reasoning Effort)", padding="10")
+        level_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        level_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(level_frame, text="Select reasoning effort level:").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.thinking_var = tk.StringVar(value=current_thinking_level)
+        
+        thinking_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.thinking_var,
+            values=["low", "medium", "high"],
+            state="readonly",
+            width=15
+        )
+        thinking_combo.grid(row=0, column=1, sticky="w")
+        
+        # Help text for thinking levels
+        help_text = ttk.Label(
+            level_frame,
+            text="low: Faster, economical | medium: Balanced (default) | high: More thorough",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        help_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        
+        # Prompts tabs section
+        prompt_frame = ttk.LabelFrame(main_frame, text="Prompts", padding="10")
+        prompt_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        prompt_frame.columnconfigure(0, weight=1)
+        prompt_frame.rowconfigure(0, weight=1)
+        
+        # Create notebook (tabs)
+        self.notebook = ttk.Notebook(prompt_frame)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
+        
+        # Tab 1: User Prompt
+        user_prompt_tab = ttk.Frame(self.notebook)
+        self.notebook.add(user_prompt_tab, text="User Prompt (Template)")
+        user_prompt_tab.columnconfigure(0, weight=1)
+        user_prompt_tab.rowconfigure(0, weight=1)
+        
+        self.prompt_text = scrolledtext.ScrolledText(user_prompt_tab, height=15, wrap=tk.WORD)
+        self.prompt_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.prompt_text.insert("1.0", current_prompt)
+        
+        # Variables helper for user prompt
+        help_label = ttk.Label(
+            user_prompt_tab,
+            text="Variables: {ticker}, {security_name}, {period}, {source_instructions}",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        help_label.grid(row=1, column=0, sticky="w", padx=10, pady=(5, 10))
+        
+        # Tab 2: System/Developer Prompt
+        dev_prompt_tab = ttk.Frame(self.notebook)
+        self.notebook.add(dev_prompt_tab, text="System Prompt (Instructions)")
+        dev_prompt_tab.columnconfigure(0, weight=1)
+        dev_prompt_tab.rowconfigure(0, weight=1)
+        
+        self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_tab, height=15, wrap=tk.WORD)
+        self.dev_prompt_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.dev_prompt_text.insert("1.0", current_developer_prompt)
+        
+        # Help text for system prompt
+        dev_help_label = ttk.Label(
+            dev_prompt_tab,
+            text="System prompt controls the LLM's behavior and tone for all requests.",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        dev_help_label.grid(row=1, column=0, sticky="w", padx=10, pady=(5, 10))
+        
+        # Button frame
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=2, column=0, sticky="e", pady=(10, 0))
+        
+        ttk.Button(btn_frame, text="Reset User Prompt", command=self.reset_user_prompt).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Reset System Prompt", command=self.reset_system_prompt).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side="left", padx=5)
+        
+        self.window.focus()
+    
+    def reset_user_prompt(self):
+        """Reset user prompt to default template."""
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert("1.0", DEFAULT_PROMPT_TEMPLATE)
+    
+    def reset_system_prompt(self):
+        """Reset system/developer prompt to default."""
+        self.dev_prompt_text.delete("1.0", tk.END)
+        self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
+    
+    def on_cancel(self):
+        """Cancel button clicked - discard changes."""
+        self.result = None
+        self.window.destroy()
+    
+    def on_save(self):
+        """Save button clicked - apply changes."""
+        self.result = {
+            "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
+            "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
+            "thinking_level": self.thinking_var.get()
+        }
+        self.window.destroy()
+
+
 class CommentaryGeneratorApp:
     """Main GUI application for the commentary generator."""
     
@@ -39,6 +179,11 @@ class CommentaryGeneratorApp:
         self.input_files: list[Path] = []
         self.output_folder: Optional[Path] = None
         self.is_running = False
+        self.thinking_level: str = "medium"  # Default thinking level
+        
+        # Prompt template and system prompt variables
+        self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
+        self.developer_prompt_content: str = DEFAULT_DEVELOPER_PROMPT
         
         # Configure grid weights for resizing
         self.root.columnconfigure(0, weight=1)
@@ -46,6 +191,83 @@ class CommentaryGeneratorApp:
         
         self.setup_ui()
         self.load_api_key()
+        self.load_config()
+    
+    def _get_config_path(self) -> Path:
+        """Get the configuration directory path (platform-aware)."""
+        if sys.platform == "win32":
+            # Windows: use APPDATA environment variable
+            config_dir = Path(os.getenv("APPDATA", str(Path.home()))) / "Commentary"
+        else:
+            # macOS/Linux: use ~/.commentary
+            config_dir = Path.home() / ".commentary"
+        
+        return config_dir
+    
+    def _get_config_file(self) -> Path:
+        """Get the full path to the config file."""
+        return self._get_config_path() / "config.json"
+    
+    def load_config(self) -> None:
+        """Load configuration from file if it exists."""
+        config_file = self._get_config_file()
+        
+        if not config_file.exists():
+            return  # Use defaults if no config file
+        
+        try:
+            with open(config_file, "r") as f:
+                config = json.load(f)
+            
+            # Load prompt template
+            if "prompt_template" in config:
+                self.prompt_text_content = config["prompt_template"]
+            
+            # Load developer prompt
+            if "developer_prompt" in config:
+                self.developer_prompt_content = config["developer_prompt"]
+            
+            # Load thinking level
+            if "thinking_level" in config:
+                self.thinking_level = config["thinking_level"]
+            
+            # Load preferred sources
+            if "preferred_sources" in config:
+                self.sources_var.set(", ".join(config["preferred_sources"]))
+            
+            # Load output folder
+            if "output_folder" in config:
+                output_folder = config["output_folder"]
+                if Path(output_folder).exists():
+                    self.output_folder = Path(output_folder)
+                    self.output_var.set(output_folder)
+        
+        except Exception as e:
+            # Silently fail if config load fails - use defaults
+            print(f"Warning: Could not load config: {e}")
+    
+    def save_config(self) -> None:
+        """Save current configuration to file."""
+        try:
+            config_dir = self._get_config_path()
+            config_dir.mkdir(parents=True, exist_ok=True)
+            
+            config = {
+                "prompt_template": self.prompt_text_content,
+                "developer_prompt": self.developer_prompt_content,
+                "thinking_level": self.thinking_level,
+                "preferred_sources": [s.strip() for s in self.sources_var.get().split(",") if s.strip()],
+                "output_folder": str(self.output_folder) if self.output_folder else ""
+            }
+            
+            config_file = self._get_config_file()
+            with open(config_file, "w") as f:
+                json.dump(config, f, indent=2)
+        
+        except Exception as e:
+            # Silently fail if config save fails
+            print(f"Warning: Could not save config: {e}")
+    
     
     def setup_ui(self):
         """Set up the user interface."""
@@ -141,39 +363,13 @@ class CommentaryGeneratorApp:
         
         current_row += 1
         
-        # ====== Developer Prompt Section ======
-        dev_prompt_frame = ttk.LabelFrame(main_frame, text="Developer Prompt (System Instructions)", padding="10")
-        dev_prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
-        dev_prompt_frame.columnconfigure(0, weight=1)
-        
-        self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_frame, height=4, wrap=tk.WORD)
-        self.dev_prompt_text.grid(row=0, column=0, sticky="ew")
-        self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
-        
-        dev_prompt_btn_frame = ttk.Frame(dev_prompt_frame)
-        dev_prompt_btn_frame.grid(row=1, column=0, sticky="e", pady=(5, 0))
-        ttk.Button(dev_prompt_btn_frame, text="Reset to Default", command=self.reset_dev_prompt).pack(side="right")
-        
-        current_row += 1
-        
         # ====== Prompt Section ======
-        prompt_frame = ttk.LabelFrame(main_frame, text="Prompt Template", padding="10")
-        prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="nsew", pady=(0, 10))
+        prompt_frame = ttk.LabelFrame(main_frame, text="Prompt Template & Thinking Level", padding="10")
+        prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
         prompt_frame.columnconfigure(0, weight=1)
-        prompt_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(current_row, weight=1)
         
-        self.prompt_text = scrolledtext.ScrolledText(prompt_frame, height=8, wrap=tk.WORD)
-        self.prompt_text.grid(row=0, column=0, sticky="nsew")
-        self.prompt_text.insert("1.0", DEFAULT_PROMPT_TEMPLATE)
-        
-        prompt_btn_frame = ttk.Frame(prompt_frame)
-        prompt_btn_frame.grid(row=1, column=0, sticky="e", pady=(5, 0))
-        ttk.Button(prompt_btn_frame, text="Reset to Default", command=self.reset_prompt).pack(side="right")
-        
-        ttk.Label(prompt_frame, 
-                  text="Variables: {ticker}, {security_name}, {period}, {source_instructions}",
-                  font=("TkDefaultFont", 9)).grid(row=2, column=0, sticky="w")
+        ttk.Label(prompt_frame, text="Click 'Edit' to modify prompt templates and configure thinking level.").pack(side="left", padx=(0, 10))
+        ttk.Button(prompt_frame, text="Edit Prompts", command=self.open_prompt_editor).pack(side="left")
         
         current_row += 1
         
@@ -252,15 +448,16 @@ class CommentaryGeneratorApp:
         else:
             self.count_combo.configure(state="readonly")
     
-    def reset_prompt(self):
-        """Reset prompt to default."""
-        self.prompt_text.delete("1.0", tk.END)
-        self.prompt_text.insert("1.0", DEFAULT_PROMPT_TEMPLATE)
-    
-    def reset_dev_prompt(self):
-        """Reset developer prompt to default."""
-        self.dev_prompt_text.delete("1.0", tk.END)
-        self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
+    def open_prompt_editor(self):
+        """Open the prompt editor modal window."""
+        modal = PromptEditorModal(self.root, self.prompt_text_content, self.developer_prompt_content, self.thinking_level)
+        self.root.wait_window(modal.window)
+        
+        # Apply changes if user clicked Save
+        if modal.result:
+            self.prompt_text_content = modal.result["prompt_template"]
+            self.developer_prompt_content = modal.result["developer_prompt"]
+            self.thinking_level = modal.result["thinking_level"]
     
     def update_progress(self, ticker: str, completed: int, total: int):
         """Update progress bar (called from async thread)."""
@@ -344,8 +541,9 @@ class CommentaryGeneratorApp:
         # Set up prompt manager
         sources = [s.strip() for s in self.sources_var.get().split(",") if s.strip()]
         prompt_config = PromptConfig(
-            template=self.prompt_text.get("1.0", tk.END).strip(),
-            preferred_sources=sources
+            template=self.prompt_text_content,
+            preferred_sources=sources,
+            thinking_level=self.thinking_level
         )
         prompt_manager = PromptManager(prompt_config)
         
@@ -353,7 +551,7 @@ class CommentaryGeneratorApp:
         client = OpenAIClient(
             api_key=self.api_key_var.get().strip(),
             progress_callback=self.update_progress,
-            developer_prompt=self.dev_prompt_text.get("1.0", tk.END).strip()
+            developer_prompt=self.developer_prompt_content
         )
         
         # Build all API requests
@@ -382,7 +580,8 @@ class CommentaryGeneratorApp:
         # Generate commentary (batch)
         results = await client.generate_commentary_batch(
             all_requests,
-            use_web_search=True
+            use_web_search=True,
+            thinking_level=self.thinking_level
         )
         
         # Organize results by portfolio
@@ -432,6 +631,9 @@ class CommentaryGeneratorApp:
     
     def _on_generation_complete(self, result: dict):
         """Handle successful generation completion."""
+        # Save configuration after successful generation
+        self.save_config()
+        
         self.progress_var.set(100)
         self.status_var.set("Complete!")
         

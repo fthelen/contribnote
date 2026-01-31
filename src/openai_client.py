@@ -171,7 +171,8 @@ class OpenAIClient:
         client: httpx.AsyncClient,
         prompt: str,
         use_web_search: bool = True,
-        preferred_domains: list[str] | None = None
+        preferred_domains: list[str] | None = None,
+        thinking_level: str = "medium"
     ) -> dict:
         """
         Make a single API request with retry logic using the Responses API.
@@ -181,6 +182,7 @@ class OpenAIClient:
             prompt: The prompt to send
             use_web_search: Whether to enable web search tool
             preferred_domains: Optional list of domains to prioritize for web search
+            thinking_level: Reasoning effort level ("low", "medium", "high")
             
         Returns:
             API response as dict
@@ -199,7 +201,7 @@ class OpenAIClient:
                 {"role": "developer", "content": self.developer_prompt},
                 {"role": "user", "content": prompt}
             ],
-            "reasoning": {"effort": "medium"},  # Standard thinking level for GPT-5.2
+            "reasoning": {"effort": thinking_level},  # Configurable thinking level
         }
         
         # Add web search tool if enabled
@@ -364,7 +366,8 @@ class OpenAIClient:
         security_name: str,
         prompt: str,
         portcode: str = "",
-        use_web_search: bool = True
+        use_web_search: bool = True,
+        thinking_level: str = "medium"
     ) -> CommentaryResult:
         """
         Generate commentary for a single security.
@@ -375,6 +378,7 @@ class OpenAIClient:
             prompt: Formatted prompt
             portcode: Portfolio code (for internal tracking)
             use_web_search: Whether to enable web search
+            thinking_level: Reasoning effort level ("low", "medium", "high")
             
         Returns:
             CommentaryResult with commentary and citations
@@ -386,7 +390,8 @@ class OpenAIClient:
                 response = await self._make_request(
                     client,
                     prompt,
-                    use_web_search=use_web_search
+                    use_web_search=use_web_search,
+                    thinking_level=thinking_level
                 )
                 result = self._parse_response(response, ticker, security_name)
                 result.request_key = request_key
@@ -412,7 +417,8 @@ class OpenAIClient:
     async def generate_commentary_batch(
         self,
         requests: list[dict],
-        use_web_search: bool = True
+        use_web_search: bool = True,
+        thinking_level: str = "medium"
     ) -> list[CommentaryResult]:
         """
         Generate commentary for multiple securities with bounded concurrency.
@@ -420,6 +426,7 @@ class OpenAIClient:
         Args:
             requests: List of dicts with keys: ticker, security_name, prompt, portcode
             use_web_search: Whether to enable web search
+            thinking_level: Reasoning effort level ("low", "medium", "high")
             
         Returns:
             List of CommentaryResult objects
@@ -437,7 +444,8 @@ class OpenAIClient:
                     security_name=req["security_name"],
                     prompt=req["prompt"],
                     portcode=req.get("portcode", ""),
-                    use_web_search=use_web_search
+                    use_web_search=use_web_search,
+                    thinking_level=thinking_level
                 )
                 completed += 1
                 if self.progress_callback:
