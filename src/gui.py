@@ -22,7 +22,7 @@ from src.selection_engine import (
     SelectionMode, process_portfolios, SelectionResult
 )
 from src.prompt_manager import PromptManager, PromptConfig, get_default_preferred_sources, DEFAULT_PROMPT_TEMPLATE
-from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig
+from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, DEFAULT_DEVELOPER_PROMPT
 from src.output_generator import create_output_workbook, create_log_file
 
 
@@ -146,6 +146,21 @@ class CommentaryGeneratorApp:
         
         current_row += 1
         
+        # ====== Developer Prompt Section ======
+        dev_prompt_frame = ttk.LabelFrame(main_frame, text="Developer Prompt (System Instructions)", padding="10")
+        dev_prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        dev_prompt_frame.columnconfigure(0, weight=1)
+        
+        self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_frame, height=4, wrap=tk.WORD)
+        self.dev_prompt_text.grid(row=0, column=0, sticky="ew")
+        self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
+        
+        dev_prompt_btn_frame = ttk.Frame(dev_prompt_frame)
+        dev_prompt_btn_frame.grid(row=1, column=0, sticky="e", pady=(5, 0))
+        ttk.Button(dev_prompt_btn_frame, text="Reset to Default", command=self.reset_dev_prompt).pack(side="right")
+        
+        current_row += 1
+        
         # ====== Prompt Section ======
         prompt_frame = ttk.LabelFrame(main_frame, text="Prompt Template", padding="10")
         prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="nsew", pady=(0, 10))
@@ -247,6 +262,11 @@ class CommentaryGeneratorApp:
         self.prompt_text.delete("1.0", tk.END)
         self.prompt_text.insert("1.0", DEFAULT_PROMPT_TEMPLATE)
     
+    def reset_dev_prompt(self):
+        """Reset developer prompt to default."""
+        self.dev_prompt_text.delete("1.0", tk.END)
+        self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
+    
     def update_progress(self, ticker: str, completed: int, total: int):
         """Update progress bar (called from async thread)."""
         def update():
@@ -338,7 +358,8 @@ class CommentaryGeneratorApp:
         # Set up OpenAI client
         client = OpenAIClient(
             api_key=self.api_key_var.get().strip(),
-            progress_callback=self.update_progress
+            progress_callback=self.update_progress,
+            developer_prompt=self.dev_prompt_text.get("1.0", tk.END).strip()
         )
         
         # Build all API requests

@@ -69,6 +69,14 @@ class RateLimitConfig:
     jitter_factor: float = 0.2
 
 
+# Default developer prompt for the LLM
+DEFAULT_DEVELOPER_PROMPT = (
+    "Write a single, concise paragraph explaining the recent performance drivers "
+    "for the requested security. Focus on material news, earnings, sector trends, "
+    "or market events. Present only factual information and cite your sources."
+)
+
+
 class OpenAIClient:
     """Async client for OpenAI Responses API."""
     
@@ -77,7 +85,8 @@ class OpenAIClient:
         api_key: Optional[str] = None,
         model: str = "gpt-5.2",
         rate_limit_config: Optional[RateLimitConfig] = None,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        developer_prompt: Optional[str] = None
     ):
         """
         Initialize the OpenAI client.
@@ -87,6 +96,7 @@ class OpenAIClient:
             model: Model to use for completions
             rate_limit_config: Rate limiting configuration
             progress_callback: Callback function(ticker, completed, total) for progress updates
+            developer_prompt: System prompt for the LLM (defaults to DEFAULT_DEVELOPER_PROMPT)
         """
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
@@ -95,6 +105,7 @@ class OpenAIClient:
         self.model = model
         self.rate_limit = rate_limit_config or RateLimitConfig()
         self.progress_callback = progress_callback
+        self.developer_prompt = developer_prompt or DEFAULT_DEVELOPER_PROMPT
         self.base_url = "https://api.openai.com/v1"
         
         # Request tracking (for PII protection)
@@ -182,17 +193,10 @@ class OpenAIClient:
         # Build request payload for Responses API
         # Note: Web search cannot be used with JSON mode, so we use plain text
         # and extract citations from url_citation annotations
-        system_prompt = (
-            "You are a financial analyst assistant. Write a single concise paragraph "
-            "explaining the recent performance drivers for the requested security. "
-            "Focus on material news, earnings, sector trends, or market events. "
-            "Be factual and cite your sources."
-        )
-        
         payload = {
             "model": self.model,
             "input": [
-                {"role": "developer", "content": system_prompt},
+                {"role": "developer", "content": self.developer_prompt},
                 {"role": "user", "content": prompt}
             ],
             "reasoning": {"effort": "medium"},  # Standard thinking level for GPT-5.2
