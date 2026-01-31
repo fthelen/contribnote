@@ -132,6 +132,8 @@ class OpenAIClient:
         Clean inline citation URLs from text and replace with footnote markers.
         
         Handles patterns like:
+        - (([1](https://...)))  -> [1]
+        - ([1](https://...))    -> [1]
         - ((domain](https://...))
         - ([domain](https://...))
         - [text](https://...)
@@ -151,6 +153,9 @@ class OpenAIClient:
         
         # Pattern for markdown links: [text](url)
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', replace_markdown_link, text)
+        
+        # Remove parentheses around footnote citations: ([N]) -> [N] or (([N])) -> [N]
+        text = re.sub(r'\(\s*(\[[0-9]+\])\s*\)', r'\1', text)
         
         # Remove double parentheses around remaining URLs: ((url))
         text = re.sub(r'\(\(https?://[^)]+\)\)', '', text)
