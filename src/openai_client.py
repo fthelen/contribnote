@@ -121,7 +121,7 @@ class OpenAIClient:
         client: httpx.AsyncClient,
         prompt: str,
         use_web_search: bool = True,
-        max_tokens: int = 350
+        preferred_domains: list[str] | None = None
     ) -> dict:
         """
         Make a single API request with retry logic using the Responses API.
@@ -130,7 +130,7 @@ class OpenAIClient:
             client: httpx async client
             prompt: The prompt to send
             use_web_search: Whether to enable web search tool
-            max_tokens: Maximum output tokens
+            preferred_domains: Optional list of domains to prioritize for web search
             
         Returns:
             API response as dict
@@ -141,8 +141,14 @@ class OpenAIClient:
         }
         
         # Build request payload for Responses API
-        # Note: When using response_format json_object, the prompt MUST mention "JSON"
-        system_prompt = "You are a financial analyst assistant. Always respond with valid JSON in this exact format: {\"commentary\": \"your paragraph here\", \"citations\": [{\"url\": \"source_url\", \"title\": \"source_title\"}]}"
+        # Note: Web search cannot be used with JSON mode, so we use plain text
+        # and extract citations from url_citation annotations
+        system_prompt = (
+            "You are a financial analyst assistant. Write a single concise paragraph "
+            "explaining the recent performance drivers for the requested security. "
+            "Focus on material news, earnings, sector trends, or market events. "
+            "Be factual and cite your sources."
+        )
         
         payload = {
             "model": self.model,
@@ -150,16 +156,17 @@ class OpenAIClient:
                 {"role": "developer", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            "max_output_tokens": max_tokens,
-            "text": {
-                "format": {"type": "json_object"}
-            },
             "reasoning": {"effort": "medium"},  # Standard thinking level for GPT-5.2
         }
         
         # Add web search tool if enabled
+        # Note: Web search CANNOT be combined with JSON mode (documented limitation)
         if use_web_search:
-            payload["tools"] = [{"type": "web_search"}]
+            web_search_config = {"type": "web_search"}
+            # Add domain filtering if preferred domains are specified
+            if preferred_domains:
+                web_search_config["search_context_size"] = "medium"
+            payload["tools"] = [web_search_config]
         
         max_retries = 5
         for attempt in range(max_retries):
@@ -205,7 +212,12 @@ class OpenAIClient:
         raise Exception("Max retries exceeded")
     
     def _parse_response(self, response: dict, ticker: str, security_name: str) -> CommentaryResult:
-        """Parse the Responses API response into a CommentaryResult."""
+        """
+        Parse the Responses API response into a CommentaryResult.
+        
+        Since web search cannot be combined with JSON mode, we expect plain text
+        commentary and extract citations from url_citation annotations.
+        """
         try:
             # Responses API returns output array with message objects
             output = response.get("output", [])
@@ -221,6 +233,8 @@ class OpenAIClient:
                             content = content_item.get("text", "")
                             annotations = content_item.get("annotations", [])
                             break
+                    if content:
+                        break
             
             if not content:
                 # Fallback: check for direct text in output
@@ -231,6 +245,8 @@ class OpenAIClient:
                                 content = content_item.get("text", "")
                                 annotations = content_item.get("annotations", [])
                                 break
+                        if content:
+                            break
             
             if not content:
                 return CommentaryResult(
@@ -242,38 +258,23 @@ class OpenAIClient:
                     error_message=f"No content in response: {response}"
                 )
             
-            # Parse JSON response
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError:
-                # If not valid JSON, use raw content as commentary
-                return CommentaryResult(
-                    ticker=ticker,
-                    security_name=security_name,
-                    commentary=content,
-                    citations=[],
-                    success=True
-                )
+            # Extract citations from url_citation annotations
+            # These are provided by the web search tool
+            citations = []
+            seen_urls = set()
             
-            commentary = data.get("commentary", "")
-            citations_data = data.get("citations", [])
-            
-            # Also extract citations from annotations (url_citation type)
             for ann in annotations:
                 if ann.get("type") == "url_citation":
-                    citations_data.append({
-                        "url": ann.get("url", ""),
-                        "title": ann.get("title", "")
-                    })
+                    url = ann.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        citations.append(Citation(
+                            url=url,
+                            title=ann.get("title", "")
+                        ))
             
-            citations = [
-                Citation(
-                    url=c.get("url", ""),
-                    title=c.get("title", "")
-                )
-                for c in citations_data
-                if c.get("url")
-            ]
+            # The content is the plain text commentary
+            commentary = content.strip()
             
             if not commentary:
                 return CommentaryResult(

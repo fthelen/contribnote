@@ -47,7 +47,8 @@ User Input (Excel files) → Data Extraction → LLM API Calls → Output Workbo
 
 **Model**: GPT-5.2 via Responses API (not Chat Completions)
 - Enable `web_search` tool for citations
-- Use Structured Outputs (JSON schema) for reliable parsing
+- **IMPORTANT**: Web search CANNOT be combined with JSON mode - use plain text output
+- Citations are extracted from `url_citation` annotations in the response
 - Reasoning effort: `medium` | Text verbosity: `low`
 - Max output tokens: 200-350 (one paragraph per security)
 

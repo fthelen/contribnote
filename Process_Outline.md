@@ -91,6 +91,7 @@ Recommended request settings for fast, cost-controlled completions:
 Citations and reputable-site prioritization
 Preferred approach: use built-in web search citations from the Responses API.
 - Enable the web_search tool when citations are required.
+- **IMPORTANT**: Web search CANNOT be combined with JSON mode (documented API limitation). Use plain text output and extract citations from annotations.
 - Apply the user-provided reputable-domain list as a web search allow-list (domain filtering).
 - Include citations metadata in the response by reading `message.content[0].annotations` (url_citation objects).
 - Optionally include the complete URL list returned by web_search using `include: ["web_search_call.action.sources"]`.
@@ -103,11 +104,10 @@ Prompt management (user control)
 - Inject the reputable-domain list into the prompt (human-readable) in addition to using it for web search filtering (e.g., “Prioritize sources from: …”).
 
 Output format and parsing
-Default: enforce JSON so the app can reliably parse commentary and link citations back to the spreadsheet.
-- Use Structured Outputs (JSON schema) so responses adhere to a known shape.
-- Suggested JSON fields:
-  - commentary: string (single paragraph; may include inline markers like [1], [2])
-  - citations: array of objects (optional; may be empty if using annotations)
+**Note**: When using web search (the default), JSON mode is NOT available. The model returns plain text commentary.
+- Commentary is returned as plain text in the response message.
+- Citations are extracted from the built-in `url_citation` annotations (not from parsed JSON).
+- If web search is disabled, JSON mode with Structured Outputs can be used as a fallback.
 
 Citations extraction and spreadsheet population
 - Preferred: extract URLs/titles from the built-in `url_citation` annotations in the message output and render the spreadsheet “Sources” column from those annotations.
