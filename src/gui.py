@@ -900,7 +900,28 @@ class CommentaryGeneratorApp:
             if self.keyring_available:
                 saved = keystore.set_api_key(new_key)
 
-            if not saved:
+            # Determine final state and show a single consolidated message
+            if env_present:
+                # Environment variable takes priority regardless of keychain result
+                self.api_key = env_key
+                self.api_key_source = "env"
+                if saved:
+                    messagebox.showinfo(
+                        "Info",
+                        "OPENAI_API_KEY is set and will be used by default. "
+                        "The key was also saved to keychain for when the environment variable is unset."
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Info",
+                        "OPENAI_API_KEY is set and will be used. "
+                        "Note: Could not save to keychain, but this won't affect operation while the environment variable is set."
+                    )
+            elif saved:
+                self.api_key = new_key
+                self.api_key_source = "keyring"
+            else:
+                self.api_key = new_key
                 self.api_key_source = "session"
                 messagebox.showwarning(
                     "Warning",
@@ -908,19 +929,6 @@ class CommentaryGeneratorApp:
                     "It will be used for this session only. "
                     "Set OPENAI_API_KEY or enable keychain access to persist."
                 )
-            else:
-                self.api_key_source = "keyring"
-
-            if env_present:
-                self.api_key = env_key
-                self.api_key_source = "env"
-                messagebox.showinfo(
-                    "Info",
-                    "OPENAI_API_KEY is set and will be used by default. "
-                    "The stored key will be used if the environment variable is unset."
-                )
-            else:
-                self.api_key = new_key
     
     def update_progress(self, ticker: str, completed: int, total: int):
         """Update progress bar (called from async thread)."""
