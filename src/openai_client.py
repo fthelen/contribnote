@@ -101,7 +101,7 @@ class OpenAIClient:
         """
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("OpenAI API key not provided. Set OPENAI_API_KEY environment variable.")
+            raise ValueError("OpenAI API key not provided. Provide a key or set OPENAI_API_KEY.")
         
         self.model = model
         self.rate_limit = rate_limit_config or RateLimitConfig()
