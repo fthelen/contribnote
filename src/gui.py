@@ -7,6 +7,7 @@ Simple tkinter-based GUI for non-technical users.
 import asyncio
 import json
 import os
+import re
 import sys
 import threading
 import tkinter as tk
@@ -69,7 +70,6 @@ def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
             continue
         
         # Check for invalid characters (allow alphanumeric, dots, hyphens)
-        import re
         if not re.match(r"^[a-z0-9\-\.]+$", cleaned):
             errors.append(f"'{domain}' contains invalid characters")
             continue
