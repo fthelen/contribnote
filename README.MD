@@ -59,13 +59,23 @@ Control how much reasoning the AI uses when generating commentary:
 - **Low**: Fastest, minimal reasoning
 - **Medium** (default): Balanced speed and quality
 - **High**: Most thorough reasoning, slower
+- **XHigh**: Maximum reasoning, slowest
 
 Access via the **Prompts & Sources** button → **Thinking Level** dropdown.
+
+### Text Verbosity Configuration
+
+Control response length and detail:
+- **Low**: Short, concise
+- **Medium**: More detail
+- **High**: Most detail
+
+Access via the **Prompts & Sources** button → **Text Verbosity** dropdown.
 
 ### Dual Prompt System
 
 The application supports two types of prompts:
-- **User Prompt**: The main template with variables (`{ticker}`, `{security_name}`, `{period}`, `{preferred_sources}`)
+- **User Prompt**: The main template with variables (`{ticker}`, `{security_name}`, `{period}`, `{source_instructions}`)
 - **System Prompt**: Developer-level instructions that guide the AI's behavior
 
 Both are editable in the **Prompts & Sources** modal.
