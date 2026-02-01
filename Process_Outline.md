@@ -2,9 +2,10 @@
 1) Objective
 Generate a single commentary paragraph per security for each portfolio’s selected contributors/detractors (or all holdings), using OpenAI’s Responses API and built-in web search citations, and deliver results in a single Excel workbook (one sheet per portfolio).
 2) Run Mode (User-Selected Inputs)
-Application: A user-run application (CLI or UI) that collects run settings and executes the workflow.
+Application: A GUI-based desktop application (tkinter) that collects run settings and executes the workflow.
 User action: The user selects one or more FactSet report Excel files to process, selects an output folder/location, and starts a run.
 Run timing: Runs on demand when initiated by the user.
+Configuration persistence: User settings (prompts, thinking level, preferred sources, last output folder) are saved to `~/Library/Application Support/Commentary/config.json` (macOS) or `%APPDATA%/Commentary/config.json` (Windows).
 3) Inputs
 Source files (user-selected)
 Format: Excel (.xlsx) exported from FactSet.
@@ -80,13 +81,13 @@ For each selected row:
   - Security Name
   - Time Period (from row 6)
 
-Model and speed/cost settings (best-value default)
-Use OpenAI’s Responses API with GPT-5.2 and standard (default) reasoning effort.
-Recommended request settings for fast, cost-controlled completions:
+Model and speed/cost settings
+Use OpenAI's Responses API with GPT-5.2.
+Request settings:
 - model: gpt-5.2
-- reasoning: { effort: "medium" } (default; aligns with “Thinking (standard)”)
+- reasoning: { effort: user-configurable } — selectable in GUI as "low", "medium" (default), or "high"
 - text: { verbosity: "low" } (one paragraph; reduces token usage)
-- max_output_tokens: set to a tight bound appropriate for one paragraph (e.g., 200–350)
+- Note: `max_output_tokens` is not enforced; model defaults apply
 
 Citations and reputable-site prioritization
 Preferred approach: use built-in web search citations from the Responses API.

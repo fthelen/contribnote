@@ -4,7 +4,7 @@
 
 This is a **Python-based LLM-powered financial commentary generator** that processes FactSet Excel reports to generate AI-written commentary for portfolio contributors and detractors. The project uses OpenAI's Responses API with web search citations.
 
-**Status**: Specification phase - see [Process_Outline.md](../Process_Outline.md) for the complete requirements document.
+**Status**: Fully implemented and operational. See [Process_Outline.md](../Process_Outline.md) for the technical specification.
 
 ## Technology Stack
 
@@ -14,18 +14,20 @@ This is a **Python-based LLM-powered financial commentary generator** that proce
 - **Configuration**: Environment variables for secrets, YAML/JSON for app config
 - **Secure Storage**: `keyring` for OS keychain access (GUI-entered API key)
 
-## Architecture (Target)
+## Architecture
 
 ```
 User Input (Excel files) → Data Extraction → LLM API Calls → Output Workbook
 ```
 
-### Key Components to Build
-1. **Input Parser**: Read FactSet Excel files (`.xlsx`) with `openpyxl`
-2. **Selection Engine**: Rank securities by contribution (top N contributors/detractors or all holdings)
-3. **LLM Client**: OpenAI Responses API integration with web search citations
-4. **Prompt Manager**: Store templates with variable interpolation (e.g., `{ticker}`, `{security_name}`, `{period}`)
-5. **Output Generator**: Single Excel workbook with one sheet per portfolio
+### Implemented Modules
+1. **Input Parser** (`excel_parser.py`): Reads FactSet Excel files with `openpyxl`, extracts PORTCODE from filename
+2. **Selection Engine** (`selection_engine.py`): Ranks securities by contribution (top N contributors/detractors or all holdings)
+3. **LLM Client** (`openai_client.py`): OpenAI Responses API with web search citations, async polling, rate limiting
+4. **Prompt Manager** (`prompt_manager.py`): Templates with variable interpolation (`{ticker}`, `{security_name}`, `{period}`, `{preferred_sources}`)
+5. **Output Generator** (`output_generator.py`): Excel workbook with one sheet per portfolio, formatted columns, log files
+6. **GUI** (`gui.py`): Full tkinter interface with settings modal, prompt editor, progress tracking
+7. **Keystore** (`keystore.py`): System keychain integration via `keyring`
 
 ## FactSet Excel File Format
 
@@ -55,8 +57,8 @@ User Input (Excel files) → Data Extraction → LLM API Calls → Output Workbo
 - Enable `web_search` tool for citations
 - **IMPORTANT**: Web search CANNOT be combined with JSON mode - use plain text output
 - Citations are extracted from `url_citation` annotations in the response
-- Reasoning effort: `medium` | Text verbosity: `low`
-- Max output tokens: 200-350 (one paragraph per security)
+- Reasoning effort: user-configurable (`low`, `medium`, `high`) via GUI
+- Text verbosity: `low` (one paragraph per security)
 
 **Rate Limiting** (per OpenAI guidelines):
 - Use `asyncio.Semaphore` for bounded concurrency (hardcoded default: 20)
