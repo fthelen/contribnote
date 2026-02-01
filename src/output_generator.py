@@ -192,9 +192,9 @@ def create_output_workbook(
             # Contributor/Detractor
             ws.cell(row=row_num, column=4, value=output_row.contributor_detractor).border = thin_border
             
-            # Contribution To Return (formatted to 4 decimal places as percentage)
+            # Contribution To Return (formatted to 2 decimal places)
             contrib_cell = ws.cell(row=row_num, column=5, value=output_row.contribution_to_return)
-            contrib_cell.number_format = '0.0000'
+            contrib_cell.number_format = '0.00'
             contrib_cell.border = thin_border
             
             # Port. Ending Weight (formatted to 2 decimal places)

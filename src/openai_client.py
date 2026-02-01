@@ -16,32 +16,6 @@ from typing import Optional, Callable
 import httpx
 
 
-# Response schema for structured outputs
-RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "commentary": {
-            "type": "string",
-            "description": "A single paragraph explaining the security's recent performance"
-        },
-        "citations": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string"},
-                    "title": {"type": "string"}
-                },
-                "required": ["url"]
-            },
-            "description": "List of source citations"
-        }
-    },
-    "required": ["commentary"],
-    "additionalProperties": False
-}
-
-
 @dataclass
 class Citation:
     """A single citation from the API response."""
@@ -455,7 +429,9 @@ class OpenAIClient:
         portcode: str = "",
         use_web_search: bool = True,
         thinking_level: str = "medium",
-        text_verbosity: str = "low"
+        text_verbosity: str = "low",
+        require_citations: bool = True,
+        client: Optional[httpx.AsyncClient] = None
     ) -> CommentaryResult:
         """
         Generate commentary for a single security.
@@ -468,16 +444,19 @@ class OpenAIClient:
             use_web_search: Whether to enable web search
             thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
             text_verbosity: Text verbosity ("low", "medium", "high")
+            require_citations: Whether to require citations in the response
+            client: Optional httpx client for connection pooling
             
         Returns:
             CommentaryResult with commentary and citations
         """
         request_key = self._generate_request_key(portcode, ticker) if portcode else ""
         
-        async with httpx.AsyncClient() as client:
+        # Use provided client or create a new one
+        async def _do_request(http_client: httpx.AsyncClient) -> CommentaryResult:
             try:
                 response = await self._make_request(
-                    client,
+                    http_client,
                     prompt,
                     use_web_search=use_web_search,
                     thinking_level=thinking_level,
@@ -486,8 +465,8 @@ class OpenAIClient:
                 result = self._parse_response(response, ticker, security_name)
                 result.request_key = request_key
                 
-                # Validate citations are present
-                if result.success and not result.citations:
+                # Validate citations are present (only if required)
+                if require_citations and result.success and not result.citations:
                     result.success = False
                     result.error_message = "No citations found in response (citations are required)"
                 
@@ -503,13 +482,20 @@ class OpenAIClient:
                     error_message=f"API request failed: {str(e)}",
                     request_key=request_key
                 )
+        
+        if client is not None:
+            return await _do_request(client)
+        else:
+            async with httpx.AsyncClient() as new_client:
+                return await _do_request(new_client)
     
     async def generate_commentary_batch(
         self,
         requests: list[dict],
         use_web_search: bool = True,
         thinking_level: str = "medium",
-        text_verbosity: str = "low"
+        text_verbosity: str = "low",
+        require_citations: bool = True
     ) -> list[CommentaryResult]:
         """
         Generate commentary for multiple securities with bounded concurrency.
@@ -519,6 +505,7 @@ class OpenAIClient:
             use_web_search: Whether to enable web search
             thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
             text_verbosity: Text verbosity ("low", "medium", "high")
+            require_citations: Whether to require citations in responses
             
         Returns:
             List of CommentaryResult objects
@@ -528,7 +515,7 @@ class OpenAIClient:
         completed = 0
         total = len(requests)
         
-        async def process_with_semaphore(req: dict, index: int) -> CommentaryResult:
+        async def process_with_semaphore(req: dict, index: int, client: httpx.AsyncClient) -> CommentaryResult:
             nonlocal completed
             async with semaphore:
                 result = await self.generate_commentary(
@@ -538,7 +525,9 @@ class OpenAIClient:
                     portcode=req.get("portcode", ""),
                     use_web_search=use_web_search,
                     thinking_level=thinking_level,
-                    text_verbosity=text_verbosity
+                    text_verbosity=text_verbosity,
+                    require_citations=require_citations,
+                    client=client
                 )
                 completed += 1
                 if self.progress_callback:
@@ -547,7 +536,7 @@ class OpenAIClient:
         
         async with httpx.AsyncClient() as client:
             tasks = [
-                process_with_semaphore(req, i)
+                process_with_semaphore(req, i, client)
                 for i, req in enumerate(requests)
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)

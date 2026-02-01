@@ -38,6 +38,7 @@ class PromptConfig:
     preferred_sources: list[str] = field(default_factory=list)
     additional_instructions: str = ""
     thinking_level: str = "medium"
+    prioritize_sources: bool = True  # Whether to inject source instructions into prompts
 
 
 class PromptManager:
@@ -54,6 +55,10 @@ class PromptManager:
     
     def get_source_instructions(self) -> str:
         """Generate source instructions based on configuration."""
+        # Return empty string if source prioritization is disabled
+        if not self.config.prioritize_sources:
+            return ""
+        
         if self.config.preferred_sources:
             sources_str = ", ".join(self.config.preferred_sources)
             return SOURCE_INSTRUCTIONS_WITH_PRIORITY.format(preferred_sources=sources_str)

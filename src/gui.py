@@ -23,7 +23,7 @@ from src.excel_parser import parse_multiple_files, PortfolioData
 from src.selection_engine import (
     SelectionMode, process_portfolios, SelectionResult
 )
-from src.prompt_manager import PromptManager, PromptConfig, get_default_preferred_sources, DEFAULT_PROMPT_TEMPLATE
+from src.prompt_manager import PromptManager, PromptConfig, get_default_preferred_sources, DEFAULT_PROMPT_TEMPLATE, SOURCE_INSTRUCTIONS_DEFAULT
 from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, DEFAULT_DEVELOPER_PROMPT
 from src.output_generator import create_output_workbook, create_log_file
 from src.ui_styles import Spacing, Typography, Dimensions
@@ -89,7 +89,7 @@ def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
 class SettingsModal:
     """Modal window for application settings including API key."""
 
-    def __init__(self, parent: tk.Tk, api_key: str, api_key_source: str, keyring_available: bool):
+    def __init__(self, parent: tk.Tk, api_key: str, api_key_source: str, keyring_available: bool, require_citations: bool = True):
         """
         Initialize the settings modal window.
 
@@ -98,6 +98,7 @@ class SettingsModal:
             api_key: Current OpenAI API key
             api_key_source: Where the API key was loaded from ("env", "keyring", "config", "session", "none")
             keyring_available: Whether system keychain storage is available
+            require_citations: Whether citations are required in responses
         """
         self.result = None  # Will be set to dict if user saves
 
@@ -172,9 +173,28 @@ class SettingsModal:
                 foreground=Typography.HELP_COLOR
             ).grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
 
+        # Citation Settings section
+        citation_frame = ttk.LabelFrame(main_frame, text="Citation Settings", padding=Spacing.FRAME_PADDING)
+        citation_frame.grid(row=1, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
+        citation_frame.columnconfigure(0, weight=1)
+
+        self.require_citations_var = tk.BooleanVar(value=require_citations)
+        ttk.Checkbutton(
+            citation_frame,
+            text="Require Citations",
+            variable=self.require_citations_var
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(
+            citation_frame,
+            text="When enabled, commentary without citations will be marked as failed.",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
         # Button frame - right aligned at bottom
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=1, column=0, sticky="e", pady=(Spacing.SECTION_MARGIN, 0))
+        btn_frame.grid(row=2, column=0, sticky="e", pady=(Spacing.SECTION_MARGIN, 0))
 
         ttk.Button(btn_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side="left")
@@ -214,7 +234,8 @@ class SettingsModal:
     def on_save(self):
         """Save button clicked - apply changes."""
         self.result = {
-            "api_key": self.api_key_var.get()
+            "api_key": self.api_key_var.get(),
+            "require_citations": self.require_citations_var.get()
         }
         self.window.destroy()
 
@@ -229,7 +250,8 @@ class PromptEditorModal:
         current_developer_prompt: str,
         current_thinking_level: str,
         current_sources: str,
-        current_text_verbosity: str
+        current_text_verbosity: str,
+        prioritize_sources: bool = True
     ):
         """
         Initialize the modal window.
@@ -241,8 +263,10 @@ class PromptEditorModal:
             current_thinking_level: Current thinking level ("low", "medium", "high", "xhigh")
             current_sources: Current preferred sources (comma-separated domains)
             current_text_verbosity: Current text verbosity ("low", "medium", "high")
+            prioritize_sources: Whether to inject source prioritization into prompts
         """
         self.result = None  # Will be set to dict if user saves
+        self._prioritize_sources = prioritize_sources
 
         self.window = tk.Toplevel(parent)
         self.window.title("Prompts & Sources")
@@ -311,10 +335,26 @@ class PromptEditorModal:
         sources_frame.grid(row=1, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
         sources_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(sources_frame, text="Domain names (comma-separated):").grid(row=0, column=0, sticky="w")
+        # Prioritize sources checkbox
+        self.prioritize_sources_var = tk.BooleanVar(value=self._prioritize_sources)
+        ttk.Checkbutton(
+            sources_frame,
+            text="Prioritize Sources",
+            variable=self.prioritize_sources_var,
+            command=self._refresh_source_preview
+        ).grid(row=0, column=0, sticky="w")
+
+        ttk.Label(
+            sources_frame,
+            text="When enabled, the model will be instructed to prioritize the listed sources.",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        ttk.Label(sources_frame, text="Domain names (comma-separated):").grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
         self.sources_var = tk.StringVar(value=current_sources)
         sources_entry = ttk.Entry(sources_frame, textvariable=self.sources_var)
-        sources_entry.grid(row=1, column=0, sticky="ew", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        sources_entry.grid(row=3, column=0, sticky="ew", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Help text for sources
         sources_help = ttk.Label(
@@ -323,7 +363,7 @@ class PromptEditorModal:
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
-        sources_help.grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        sources_help.grid(row=4, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Error message label for sources validation
         self.sources_error_var = tk.StringVar()
@@ -333,7 +373,7 @@ class PromptEditorModal:
             font=Typography.HELP_FONT,
             foreground=Typography.ERROR_COLOR
         )
-        self.sources_error_label.grid(row=3, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        self.sources_error_label.grid(row=5, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Source instructions preview
         preview_frame = ttk.LabelFrame(main_frame, text="Source Instructions Preview", padding=Spacing.FRAME_PADDING)
@@ -449,9 +489,15 @@ class PromptEditorModal:
         else:
             self.sources_error_var.set("")
 
-        preview_config = PromptConfig(preferred_sources=valid_domains)
-        preview_manager = PromptManager(preview_config)
-        preview_text = preview_manager.get_source_instructions()
+        # Show preview based on prioritize_sources setting
+        if self.prioritize_sources_var.get() and valid_domains:
+            preview_config = PromptConfig(preferred_sources=valid_domains)
+            preview_manager = PromptManager(preview_config)
+            preview_text = preview_manager.get_source_instructions()
+        elif self.prioritize_sources_var.get():
+            preview_text = SOURCE_INSTRUCTIONS_DEFAULT
+        else:
+            preview_text = "(Source prioritization disabled - no instructions will be added to prompt)"
 
         self.source_preview_text.configure(state="normal")
         self.source_preview_text.delete("1.0", tk.END)
@@ -477,7 +523,8 @@ class PromptEditorModal:
             "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
             "thinking_level": self.thinking_var.get(),
             "text_verbosity": self.text_verbosity_var.get(),
-            "preferred_sources": ", ".join(valid_domains)  # Return cleaned domains
+            "preferred_sources": ", ".join(valid_domains),  # Return cleaned domains
+            "prioritize_sources": self.prioritize_sources_var.get()
         }
         self.window.destroy()
 
@@ -505,6 +552,10 @@ class CommentaryGeneratorApp:
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
         self.developer_prompt_content: str = DEFAULT_DEVELOPER_PROMPT
+        
+        # Citation and source settings
+        self.require_citations: bool = True  # Default: require citations
+        self.prioritize_sources: bool = True  # Default: inject source instructions into prompt
 
         # Configure grid weights for resizing
         self.root.columnconfigure(0, weight=1)
@@ -574,6 +625,14 @@ class CommentaryGeneratorApp:
             if "preferred_sources" in config:
                 self.sources_var.set(", ".join(config["preferred_sources"]))
             
+            # Load require_citations setting
+            if "require_citations" in config:
+                self.require_citations = config["require_citations"]
+            
+            # Load prioritize_sources setting
+            if "prioritize_sources" in config:
+                self.prioritize_sources = config["prioritize_sources"]
+            
             # Load output folder
             if "output_folder" in config:
                 output_folder = config["output_folder"]
@@ -597,6 +656,8 @@ class CommentaryGeneratorApp:
                 "thinking_level": self.thinking_level,
                 "text_verbosity": self.text_verbosity,
                 "preferred_sources": [s.strip() for s in self.sources_var.get().split(",") if s.strip()],
+                "require_citations": self.require_citations,
+                "prioritize_sources": self.prioritize_sources,
                 "output_folder": str(self.output_folder) if self.output_folder else ""
             }
             
@@ -798,7 +859,8 @@ class CommentaryGeneratorApp:
             self.developer_prompt_content,
             self.thinking_level,
             self.sources_var.get(),
-            self.text_verbosity
+            self.text_verbosity,
+            self.prioritize_sources
         )
         self.root.wait_window(modal.window)
         
@@ -809,14 +871,17 @@ class CommentaryGeneratorApp:
             self.thinking_level = modal.result["thinking_level"]
             self.text_verbosity = modal.result["text_verbosity"]
             self.sources_var.set(modal.result["preferred_sources"])
+            self.prioritize_sources = modal.result["prioritize_sources"]
     
     def open_settings(self):
         """Open the settings modal window."""
-        modal = SettingsModal(self.root, self.api_key, self.api_key_source, self.keyring_available)
+        modal = SettingsModal(self.root, self.api_key, self.api_key_source, self.keyring_available, self.require_citations)
         self.root.wait_window(modal.window)
         
         # Apply changes if user clicked Save
         if modal.result:
+            # Handle require_citations setting
+            self.require_citations = modal.result.get("require_citations", True)
             env_key = os.environ.get("OPENAI_API_KEY", "")
             env_present = bool(env_key)
             new_key = modal.result["api_key"].strip()
@@ -941,7 +1006,8 @@ class CommentaryGeneratorApp:
         prompt_config = PromptConfig(
             template=self.prompt_text_content,
             preferred_sources=sources,
-            thinking_level=self.thinking_level
+            thinking_level=self.thinking_level,
+            prioritize_sources=self.prioritize_sources
         )
         prompt_manager = PromptManager(prompt_config)
         
@@ -980,7 +1046,8 @@ class CommentaryGeneratorApp:
             all_requests,
             use_web_search=True,
             thinking_level=self.thinking_level,
-            text_verbosity=self.text_verbosity
+            text_verbosity=self.text_verbosity,
+            require_citations=self.require_citations
         )
         
         # Organize results by portfolio
