@@ -223,7 +223,8 @@ class OpenAIClient:
         prompt: str,
         use_web_search: bool = True,
         preferred_domains: list[str] | None = None,
-        thinking_level: str = "medium"
+        thinking_level: str = "medium",
+        text_verbosity: str = "low"
     ) -> dict:
         """
         Make a single API request with retry logic using the Responses API.
@@ -233,7 +234,8 @@ class OpenAIClient:
             prompt: The prompt to send
             use_web_search: Whether to enable web search tool
             preferred_domains: Optional list of domains to prioritize for web search
-            thinking_level: Reasoning effort level ("low", "medium", "high")
+            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            text_verbosity: Text verbosity ("low", "medium", "high")
             
         Returns:
             API response as dict
@@ -254,6 +256,9 @@ class OpenAIClient:
             ],
             "reasoning": {"effort": thinking_level},  # Configurable thinking level
         }
+
+        if text_verbosity:
+            payload["text"] = {"verbosity": text_verbosity}
         
         # Add web search tool if enabled
         # Note: Web search CANNOT be combined with JSON mode (documented limitation)
@@ -269,7 +274,8 @@ class OpenAIClient:
         timeout_map = {
             "low": 120.0,      # 2 minutes
             "medium": 300.0,   # 5 minutes
-            "high": 600.0      # 10 minutes
+            "high": 600.0,     # 10 minutes
+            "xhigh": 900.0     # 15 minutes
         }
         timeout = timeout_map.get(thinking_level, 300.0)
         
@@ -448,7 +454,8 @@ class OpenAIClient:
         prompt: str,
         portcode: str = "",
         use_web_search: bool = True,
-        thinking_level: str = "medium"
+        thinking_level: str = "medium",
+        text_verbosity: str = "low"
     ) -> CommentaryResult:
         """
         Generate commentary for a single security.
@@ -459,7 +466,8 @@ class OpenAIClient:
             prompt: Formatted prompt
             portcode: Portfolio code (for internal tracking)
             use_web_search: Whether to enable web search
-            thinking_level: Reasoning effort level ("low", "medium", "high")
+            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            text_verbosity: Text verbosity ("low", "medium", "high")
             
         Returns:
             CommentaryResult with commentary and citations
@@ -472,7 +480,8 @@ class OpenAIClient:
                     client,
                     prompt,
                     use_web_search=use_web_search,
-                    thinking_level=thinking_level
+                    thinking_level=thinking_level,
+                    text_verbosity=text_verbosity
                 )
                 result = self._parse_response(response, ticker, security_name)
                 result.request_key = request_key
@@ -499,7 +508,8 @@ class OpenAIClient:
         self,
         requests: list[dict],
         use_web_search: bool = True,
-        thinking_level: str = "medium"
+        thinking_level: str = "medium",
+        text_verbosity: str = "low"
     ) -> list[CommentaryResult]:
         """
         Generate commentary for multiple securities with bounded concurrency.
@@ -507,7 +517,8 @@ class OpenAIClient:
         Args:
             requests: List of dicts with keys: ticker, security_name, prompt, portcode
             use_web_search: Whether to enable web search
-            thinking_level: Reasoning effort level ("low", "medium", "high")
+            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            text_verbosity: Text verbosity ("low", "medium", "high")
             
         Returns:
             List of CommentaryResult objects
@@ -526,7 +537,8 @@ class OpenAIClient:
                     prompt=req["prompt"],
                     portcode=req.get("portcode", ""),
                     use_web_search=use_web_search,
-                    thinking_level=thinking_level
+                    thinking_level=thinking_level,
+                    text_verbosity=text_verbosity
                 )
                 completed += 1
                 if self.progress_callback:

@@ -222,7 +222,15 @@ class SettingsModal:
 class PromptEditorModal:
     """Modal window for editing prompt template, system prompt, thinking level, and preferred sources."""
 
-    def __init__(self, parent: tk.Tk, current_prompt: str, current_developer_prompt: str, current_thinking_level: str, current_sources: str):
+    def __init__(
+        self,
+        parent: tk.Tk,
+        current_prompt: str,
+        current_developer_prompt: str,
+        current_thinking_level: str,
+        current_sources: str,
+        current_text_verbosity: str
+    ):
         """
         Initialize the modal window.
 
@@ -230,8 +238,9 @@ class PromptEditorModal:
             parent: Parent window
             current_prompt: Current prompt template text
             current_developer_prompt: Current system/developer prompt text
-            current_thinking_level: Current thinking level ("low", "medium", "high")
+            current_thinking_level: Current thinking level ("low", "medium", "high", "xhigh")
             current_sources: Current preferred sources (comma-separated domains)
+            current_text_verbosity: Current text verbosity ("low", "medium", "high")
         """
         self.result = None  # Will be set to dict if user saves
 
@@ -249,10 +258,10 @@ class PromptEditorModal:
         main_frame = ttk.Frame(self.window, padding=Spacing.FRAME_PADDING)
         main_frame.grid(row=0, column=0, sticky="nsew")
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(2, weight=1)  # Prompts section expands
+        main_frame.rowconfigure(3, weight=1)  # Prompts section expands
 
         # Thinking level section
-        level_frame = ttk.LabelFrame(main_frame, text="Thinking Level (Reasoning Effort)", padding=Spacing.FRAME_PADDING)
+        level_frame = ttk.LabelFrame(main_frame, text="Reasoning & Verbosity", padding=Spacing.FRAME_PADDING)
         level_frame.grid(row=0, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
         level_frame.columnconfigure(1, weight=1)
 
@@ -262,20 +271,40 @@ class PromptEditorModal:
         thinking_combo = ttk.Combobox(
             level_frame,
             textvariable=self.thinking_var,
-            values=["low", "medium", "high"],
+            values=["low", "medium", "high", "xhigh"],
             state="readonly",
             width=12
         )
         thinking_combo.grid(row=0, column=1, sticky="w")
 
+        ttk.Label(level_frame, text="Text verbosity:").grid(row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        self.text_verbosity_var = tk.StringVar(value=current_text_verbosity)
+
+        verbosity_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.text_verbosity_var,
+            values=["low", "medium", "high"],
+            state="readonly",
+            width=12
+        )
+        verbosity_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
         # Help text for thinking levels
         help_text = ttk.Label(
             level_frame,
-            text="low: Faster, economical | medium: Balanced (default) | high: More thorough",
+            text="low: Fastest | medium: Balanced (default) | high: Thorough | xhigh: Most thorough",
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
-        help_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        help_text.grid(row=2, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+
+        verbosity_help = ttk.Label(
+            level_frame,
+            text="Verbosity controls response length and detail.",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        )
+        verbosity_help.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Preferred sources section
         sources_frame = ttk.LabelFrame(main_frame, text="Preferred Sources for Web Search", padding=Spacing.FRAME_PADDING)
@@ -306,9 +335,17 @@ class PromptEditorModal:
         )
         self.sources_error_label.grid(row=3, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
+        # Source instructions preview
+        preview_frame = ttk.LabelFrame(main_frame, text="Source Instructions Preview", padding=Spacing.FRAME_PADDING)
+        preview_frame.grid(row=2, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
+        preview_frame.columnconfigure(0, weight=1)
+
+        self.source_preview_text = tk.Text(preview_frame, height=3, wrap=tk.WORD, state="disabled")
+        self.source_preview_text.grid(row=0, column=0, sticky="ew")
+
         # Prompts tabs section
         prompt_frame = ttk.LabelFrame(main_frame, text="Prompts", padding=Spacing.FRAME_PADDING)
-        prompt_frame.grid(row=2, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
+        prompt_frame.grid(row=3, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
         prompt_frame.columnconfigure(0, weight=1)
         prompt_frame.rowconfigure(0, weight=1)
 
@@ -356,7 +393,7 @@ class PromptEditorModal:
 
         # Button frame - Reset buttons left, Cancel/Save right
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=3, column=0, sticky="ew")
+        btn_frame.grid(row=4, column=0, sticky="ew")
         btn_frame.columnconfigure(0, weight=1)
 
         # Left side - Reset buttons
@@ -371,6 +408,8 @@ class PromptEditorModal:
         ttk.Button(action_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         ttk.Button(action_frame, text="Save", command=self.on_save).pack(side="left")
 
+        self.sources_var.trace_add("write", self._on_sources_change)
+        self._refresh_source_preview()
         self.window.focus()
 
     def _center_on_parent(self, parent: tk.Tk, width: int, height: int):
@@ -399,6 +438,25 @@ class PromptEditorModal:
         """Reset system/developer prompt to default."""
         self.dev_prompt_text.delete("1.0", tk.END)
         self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
+
+    def _on_sources_change(self, *_args):
+        self._refresh_source_preview()
+
+    def _refresh_source_preview(self):
+        valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
+        if errors and self.sources_var.get().strip():
+            self.sources_error_var.set("Errors: " + "; ".join(errors))
+        else:
+            self.sources_error_var.set("")
+
+        preview_config = PromptConfig(preferred_sources=valid_domains)
+        preview_manager = PromptManager(preview_config)
+        preview_text = preview_manager.get_source_instructions()
+
+        self.source_preview_text.configure(state="normal")
+        self.source_preview_text.delete("1.0", tk.END)
+        self.source_preview_text.insert("1.0", preview_text)
+        self.source_preview_text.configure(state="disabled")
     
     def on_cancel(self):
         """Cancel button clicked - discard changes."""
@@ -418,6 +476,7 @@ class PromptEditorModal:
             "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
             "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
             "thinking_level": self.thinking_var.get(),
+            "text_verbosity": self.text_verbosity_var.get(),
             "preferred_sources": ", ".join(valid_domains)  # Return cleaned domains
         }
         self.window.destroy()
@@ -437,6 +496,7 @@ class CommentaryGeneratorApp:
         self.output_folder: Optional[Path] = None
         self.is_running = False
         self.thinking_level: str = "medium"  # Default thinking level
+        self.text_verbosity: str = "low"  # Default verbosity level
         self.api_key: str = ""  # API key storage
         self.api_key_source: str = "none"
         self.keyring_available: bool = keystore.keyring_available()
@@ -506,6 +566,9 @@ class CommentaryGeneratorApp:
             # Load thinking level
             if "thinking_level" in config:
                 self.thinking_level = config["thinking_level"]
+
+            if "text_verbosity" in config:
+                self.text_verbosity = config["text_verbosity"]
             
             # Load preferred sources
             if "preferred_sources" in config:
@@ -532,6 +595,7 @@ class CommentaryGeneratorApp:
                 "prompt_template": self.prompt_text_content,
                 "developer_prompt": self.developer_prompt_content,
                 "thinking_level": self.thinking_level,
+                "text_verbosity": self.text_verbosity,
                 "preferred_sources": [s.strip() for s in self.sources_var.get().split(",") if s.strip()],
                 "output_folder": str(self.output_folder) if self.output_folder else ""
             }
@@ -631,7 +695,7 @@ class CommentaryGeneratorApp:
         prompts_container = ttk.Frame(config_frame)
         prompts_container.grid(row=0, column=1, sticky="w")
         ttk.Button(prompts_container, text="Prompts & Sources", command=self.open_prompt_editor).pack(anchor="w")
-        ttk.Label(prompts_container, text="Edit prompts, sources, and thinking level",
+        ttk.Label(prompts_container, text="Edit prompts, sources, reasoning, and verbosity",
                   font=Typography.HELP_FONT, foreground=Typography.HELP_COLOR).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         current_row += 1
@@ -728,7 +792,14 @@ class CommentaryGeneratorApp:
     
     def open_prompt_editor(self):
         """Open the prompt editor modal window."""
-        modal = PromptEditorModal(self.root, self.prompt_text_content, self.developer_prompt_content, self.thinking_level, self.sources_var.get())
+        modal = PromptEditorModal(
+            self.root,
+            self.prompt_text_content,
+            self.developer_prompt_content,
+            self.thinking_level,
+            self.sources_var.get(),
+            self.text_verbosity
+        )
         self.root.wait_window(modal.window)
         
         # Apply changes if user clicked Save
@@ -736,6 +807,7 @@ class CommentaryGeneratorApp:
             self.prompt_text_content = modal.result["prompt_template"]
             self.developer_prompt_content = modal.result["developer_prompt"]
             self.thinking_level = modal.result["thinking_level"]
+            self.text_verbosity = modal.result["text_verbosity"]
             self.sources_var.set(modal.result["preferred_sources"])
     
     def open_settings(self):
@@ -907,7 +979,8 @@ class CommentaryGeneratorApp:
         results = await client.generate_commentary_batch(
             all_requests,
             use_web_search=True,
-            thinking_level=self.thinking_level
+            thinking_level=self.thinking_level,
+            text_verbosity=self.text_verbosity
         )
         
         # Organize results by portfolio

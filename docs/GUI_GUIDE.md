@@ -79,9 +79,9 @@ Enter your OpenAI API key here if not using an environment variable.
 ![Prompts Modal](screenshots/prompts_modal.png)
 *Screenshot placeholder: Add prompts_modal.png showing the tabbed interface*
 
-This modal has three tabs for configuring AI behavior.
+This modal lets you configure reasoning effort, text verbosity, preferred sources, and prompts.
 
-### Tab 1: User Prompt
+### User Prompt (Template)
 
 The main prompt template sent to the AI. Supports these variables:
 
@@ -90,16 +90,18 @@ The main prompt template sent to the AI. Supports these variables:
 | `{ticker}` | Security ticker symbol | AAPL |
 | `{security_name}` | Full security name | Apple Inc. |
 | `{period}` | Time period from Excel | 12/31/2025 to 1/28/2026 |
-| `{preferred_sources}` | Domain allow-list | reuters.com, bloomberg.com |
+| `{source_instructions}` | Source guidance text | Prioritize information from these reputable sources: ... |
 
 **Default Template:**
 ```
 Write a single paragraph explaining the recent performance of {security_name} ({ticker}) 
 during the period {period}. Focus on key events, earnings, or market factors that 
-influenced the stock. Prioritize information from: {preferred_sources}.
+influenced the stock.
+
+{source_instructions}
 ```
 
-### Tab 2: System Prompt
+### System Prompt (Instructions)
 
 Developer-level instructions that guide the AI's overall behavior. This is sent as the system message and affects tone, format, and constraints.
 
@@ -110,7 +112,7 @@ suitable for institutional investment reports. Avoid speculation and clearly
 attribute information to sources when available.
 ```
 
-### Tab 3: Thinking Level
+### Reasoning Effort
 
 Controls how much reasoning the AI performs before responding:
 
@@ -119,6 +121,21 @@ Controls how much reasoning the AI performs before responding:
 | **Low** | Fastest | Basic | Quick drafts, simple securities |
 | **Medium** | Balanced | Good | Default for most runs |
 | **High** | Slowest | Best | Complex situations, final reports |
+| **XHigh** | Slowest | Best+ | Most complex situations |
+
+### Text Verbosity
+
+Controls response length and detail:
+
+| Level | Typical Output | Use Case |
+|-------|----------------|---------|
+| **Low** | Short, concise | Default for most runs |
+| **Medium** | More detail | Deeper context |
+| **High** | Most detail | Maximum depth |
+
+### Source Instructions Preview
+
+Shows the exact source guidance text that will be injected into the prompt based on your preferred sources.
 
 ### Preferred Sources
 
@@ -135,7 +152,7 @@ A list of trusted financial news domains. The AI prioritizes these when searchin
 
 **Adding/Editing Sources:**
 - Enter domain names only (no `https://` or `www.`)
-- One domain per line
+- Comma-separated domain list
 - Invalid formats are highlighted in red
 
 ---
