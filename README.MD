@@ -12,16 +12,19 @@ pip install -r requirements.txt
 
 ### 2. Set Your OpenAI API Key
 
-Either set it as an environment variable:
+Preferred: set it as an environment variable (best for enterprise deployment):
 ```bash
 export OPENAI_API_KEY="sk-your-api-key-here"
 ```
 
-Or create a `.env` file (copy from `.env.example`):
+Or create a `.env` file (copy from `.env.example`) for local development:
 ```bash
 cp .env.example .env
 # Then edit .env and add your API key
 ```
+
+If you enter a key in the app's settings, it will be stored in your system keychain
+(macOS Keychain / Windows Credential Manager) and used when `OPENAI_API_KEY` is not set.
 
 ### 3. Run the Application
 
@@ -69,6 +72,7 @@ commentary/
 │   ├── selection_engine.py # Ranking/selection logic
 │   ├── prompt_manager.py  # Prompt template management
 │   ├── openai_client.py   # OpenAI API client
+│   ├── keystore.py        # System keychain integration
 │   ├── output_generator.py # Excel output generation
 │   └── gui.py             # GUI application
 └── [your Excel files]

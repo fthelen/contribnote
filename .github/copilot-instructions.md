@@ -12,6 +12,7 @@ This is a **Python-based LLM-powered financial commentary generator** that proce
 - **Excel I/O**: `openpyxl` for reading/writing `.xlsx` files
 - **HTTP Client**: `httpx` with async support for concurrent API calls
 - **Configuration**: Environment variables for secrets, YAML/JSON for app config
+- **Secure Storage**: `keyring` for OS keychain access (GUI-entered API key)
 
 ## Architecture (Target)
 
@@ -43,7 +44,12 @@ User Input (Excel files) → Data Extraction → LLM API Calls → Output Workbo
 
 ## OpenAI API Integration
 
-**Environment Variable**: `OPENAI_API_KEY` (required)
+**Environment Variable**: `OPENAI_API_KEY` (primary)
+
+**Key Storage Policy**:
+- Prefer `OPENAI_API_KEY` when set
+- Otherwise use system keychain via `keyring`
+- Do not persist API keys in JSON/YAML config files
 
 **Model**: GPT-5.2 via Responses API (not Chat Completions)
 - Enable `web_search` tool for citations
