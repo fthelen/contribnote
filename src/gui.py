@@ -7,6 +7,7 @@ Simple tkinter-based GUI for non-technical users.
 import asyncio
 import json
 import os
+import re
 import sys
 import threading
 import tkinter as tk
@@ -27,10 +28,140 @@ from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, D
 from src.output_generator import create_output_workbook, create_log_file
 
 
-class PromptEditorModal:
-    """Modal window for editing prompt template, system prompt, and thinking level."""
+def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
+    """
+    Validate and clean domain inputs for web search.
     
-    def __init__(self, parent: tk.Tk, current_prompt: str, current_developer_prompt: str, current_thinking_level: str):
+    Removes common URL prefixes (http://, https://, www.) and validates domain format.
+    
+    Args:
+        domains_str: Comma-separated domain string
+        
+    Returns:
+        tuple: (list of valid cleaned domains, list of validation error messages)
+    """
+    errors = []
+    valid_domains = []
+    
+    if not domains_str.strip():
+        return [], []
+    
+    for domain in domains_str.split(","):
+        domain = domain.strip()
+        if not domain:
+            continue
+        
+        # Remove common URL prefixes
+        cleaned = domain.lower()
+        for prefix in ["https://", "http://", "www."]:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+        
+        # Remove trailing slashes
+        cleaned = cleaned.rstrip("/")
+        
+        # Basic domain validation: should contain at least one dot and alphanumeric chars
+        if not cleaned:
+            errors.append(f"'{domain}' results in empty domain after cleanup")
+            continue
+        
+        if "." not in cleaned:
+            errors.append(f"'{domain}' is not a valid domain (missing top-level domain)")
+            continue
+        
+        # Check for invalid characters (allow alphanumeric, dots, hyphens)
+        if not re.match(r"^[a-z0-9\-\.]+$", cleaned):
+            errors.append(f"'{domain}' contains invalid characters")
+            continue
+        
+        # Check that it doesn't start or end with a hyphen or dot
+        if cleaned.startswith("-") or cleaned.startswith(".") or cleaned.endswith("-") or cleaned.endswith("."):
+            errors.append(f"'{domain}' has invalid format (starts/ends with invalid character)")
+            continue
+        
+        valid_domains.append(cleaned)
+    
+    return valid_domains, errors
+
+
+class SettingsModal:
+    """Modal window for application settings including API key."""
+    
+    def __init__(self, parent: tk.Tk, api_key: str):
+        """
+        Initialize the settings modal window.
+        
+        Args:
+            parent: Parent window
+            api_key: Current OpenAI API key
+        """
+        self.result = None  # Will be set to dict if user saves
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("Settings")
+        self.window.geometry("500x200")
+        self.window.transient(parent)
+        self.window.grab_set()
+        
+        main_frame = ttk.Frame(self.window, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        main_frame.columnconfigure(1, weight=1)
+        
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
+        
+        # API Key section
+        ttk.Label(main_frame, text="OpenAI API Key:").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.api_key_var = tk.StringVar(value=api_key)
+        self.api_key_entry = ttk.Entry(main_frame, textvariable=self.api_key_var, show="*")
+        self.api_key_entry.grid(row=0, column=1, sticky="ew", pady=(0, 5))
+        
+        self.show_key_var = tk.BooleanVar()
+        ttk.Checkbutton(main_frame, text="Show", variable=self.show_key_var, 
+                        command=self.toggle_key_visibility).grid(row=0, column=2, padx=(10, 0))
+        
+        # Help text for API key
+        help_text = ttk.Label(
+            main_frame,
+            text="Your API key is stored locally and never shared.",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        help_text.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        
+        # Button frame
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=2, column=0, columnspan=3, sticky="e", pady=(10, 0))
+        
+        ttk.Button(btn_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side="left", padx=5)
+        
+        self.window.focus()
+    
+    def toggle_key_visibility(self):
+        """Toggle API key visibility."""
+        if self.show_key_var.get():
+            self.api_key_entry.configure(show="")
+        else:
+            self.api_key_entry.configure(show="*")
+    
+    def on_cancel(self):
+        """Cancel button clicked - discard changes."""
+        self.result = None
+        self.window.destroy()
+    
+    def on_save(self):
+        """Save button clicked - apply changes."""
+        self.result = {
+            "api_key": self.api_key_var.get()
+        }
+        self.window.destroy()
+
+
+class PromptEditorModal:
+    """Modal window for editing prompt template, system prompt, thinking level, and preferred sources."""
+    
+    def __init__(self, parent: tk.Tk, current_prompt: str, current_developer_prompt: str, current_thinking_level: str, current_sources: str):
         """
         Initialize the modal window.
         
@@ -39,12 +170,13 @@ class PromptEditorModal:
             current_prompt: Current prompt template text
             current_developer_prompt: Current system/developer prompt text
             current_thinking_level: Current thinking level ("low", "medium", "high")
+            current_sources: Current preferred sources (comma-separated domains)
         """
         self.result = None  # Will be set to dict if user saves
         
         self.window = tk.Toplevel(parent)
-        self.window.title("Edit Prompts & Thinking Level")
-        self.window.geometry("700x650")
+        self.window.title("Edit Prompts, Sources & Thinking Level")
+        self.window.geometry("700x750")
         self.window.transient(parent)
         self.window.grab_set()
         
@@ -82,9 +214,38 @@ class PromptEditorModal:
         )
         help_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
         
+        # Preferred sources section
+        sources_frame = ttk.LabelFrame(main_frame, text="Preferred Sources for Web Search", padding="10")
+        sources_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        sources_frame.columnconfigure(0, weight=1)
+        
+        ttk.Label(sources_frame, text="Domain names (comma-separated):").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.sources_var = tk.StringVar(value=current_sources)
+        sources_entry = ttk.Entry(sources_frame, textvariable=self.sources_var)
+        sources_entry.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+        
+        # Help text for sources
+        sources_help = ttk.Label(
+            sources_frame,
+            text="Examples: reuters.com, bloomberg.com, cnbc.com\nWill automatically clean URLs (removes http://, www., etc.)",
+            font=("TkDefaultFont", 8),
+            foreground="gray"
+        )
+        sources_help.grid(row=2, column=0, sticky="w", pady=(5, 0))
+        
+        # Error message label for sources validation
+        self.sources_error_var = tk.StringVar()
+        self.sources_error_label = ttk.Label(
+            sources_frame,
+            textvariable=self.sources_error_var,
+            font=("TkDefaultFont", 8),
+            foreground="red"
+        )
+        self.sources_error_label.grid(row=3, column=0, sticky="w", pady=(3, 0))
+        
         # Prompts tabs section
         prompt_frame = ttk.LabelFrame(main_frame, text="Prompts", padding="10")
-        prompt_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        prompt_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
         prompt_frame.columnconfigure(0, weight=1)
         prompt_frame.rowconfigure(0, weight=1)
         
@@ -98,7 +259,7 @@ class PromptEditorModal:
         user_prompt_tab.columnconfigure(0, weight=1)
         user_prompt_tab.rowconfigure(0, weight=1)
         
-        self.prompt_text = scrolledtext.ScrolledText(user_prompt_tab, height=15, wrap=tk.WORD)
+        self.prompt_text = scrolledtext.ScrolledText(user_prompt_tab, height=12, wrap=tk.WORD)
         self.prompt_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         self.prompt_text.insert("1.0", current_prompt)
         
@@ -117,7 +278,7 @@ class PromptEditorModal:
         dev_prompt_tab.columnconfigure(0, weight=1)
         dev_prompt_tab.rowconfigure(0, weight=1)
         
-        self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_tab, height=15, wrap=tk.WORD)
+        self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_tab, height=12, wrap=tk.WORD)
         self.dev_prompt_text.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         self.dev_prompt_text.insert("1.0", current_developer_prompt)
         
@@ -132,7 +293,7 @@ class PromptEditorModal:
         
         # Button frame
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=2, column=0, sticky="e", pady=(10, 0))
+        btn_frame.grid(row=3, column=0, sticky="e", pady=(10, 0))
         
         ttk.Button(btn_frame, text="Reset User Prompt", command=self.reset_user_prompt).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="Reset System Prompt", command=self.reset_system_prompt).pack(side="left", padx=5)
@@ -158,10 +319,18 @@ class PromptEditorModal:
     
     def on_save(self):
         """Save button clicked - apply changes."""
+        # Validate and clean sources
+        valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
+        
+        if errors:
+            self.sources_error_var.set("Errors: " + "; ".join(errors))
+            return
+        
         self.result = {
             "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
             "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
-            "thinking_level": self.thinking_var.get()
+            "thinking_level": self.thinking_var.get(),
+            "preferred_sources": ", ".join(valid_domains)  # Return cleaned domains
         }
         self.window.destroy()
 
@@ -180,6 +349,8 @@ class CommentaryGeneratorApp:
         self.output_folder: Optional[Path] = None
         self.is_running = False
         self.thinking_level: str = "medium"  # Default thinking level
+        self.api_key: str = ""  # API key storage
+        self.sources_var = tk.StringVar(value=", ".join(get_default_preferred_sources()))
         
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
@@ -219,6 +390,10 @@ class CommentaryGeneratorApp:
             with open(config_file, "r") as f:
                 config = json.load(f)
             
+            # Load API key
+            if "api_key" in config:
+                self.api_key = config["api_key"]
+            
             # Load prompt template
             if "prompt_template" in config:
                 self.prompt_text_content = config["prompt_template"]
@@ -253,6 +428,7 @@ class CommentaryGeneratorApp:
             config_dir.mkdir(parents=True, exist_ok=True)
             
             config = {
+                "api_key": self.api_key,
                 "prompt_template": self.prompt_text_content,
                 "developer_prompt": self.developer_prompt_content,
                 "thinking_level": self.thinking_level,
@@ -277,22 +453,6 @@ class CommentaryGeneratorApp:
         main_frame.columnconfigure(1, weight=1)
         
         current_row = 0
-        
-        # ====== API Key Section ======
-        api_frame = ttk.LabelFrame(main_frame, text="OpenAI API Key", padding="10")
-        api_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
-        api_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(api_frame, text="API Key:").grid(row=0, column=0, sticky="w", padx=(0, 10))
-        self.api_key_var = tk.StringVar()
-        self.api_key_entry = ttk.Entry(api_frame, textvariable=self.api_key_var, show="*", width=50)
-        self.api_key_entry.grid(row=0, column=1, sticky="ew")
-        
-        self.show_key_var = tk.BooleanVar()
-        ttk.Checkbutton(api_frame, text="Show", variable=self.show_key_var, 
-                        command=self.toggle_key_visibility).grid(row=0, column=2, padx=(10, 0))
-        
-        current_row += 1
         
         # ====== File Selection Section ======
         file_frame = ttk.LabelFrame(main_frame, text="File Selection", padding="10")
@@ -352,24 +512,25 @@ class CommentaryGeneratorApp:
                                          values=["5", "10"], state="readonly", width=10)
         self.count_combo.grid(row=1, column=1, sticky="w", pady=(5, 0))
         
-        # Preferred sources
-        ttk.Label(settings_frame, text="Preferred Sources:").grid(row=2, column=0, sticky="nw", padx=(0, 10), pady=(5, 0))
-        self.sources_var = tk.StringVar(value=", ".join(get_default_preferred_sources()))
-        sources_entry = ttk.Entry(settings_frame, textvariable=self.sources_var)
-        sources_entry.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(5, 0))
+        current_row += 1
         
-        ttk.Label(settings_frame, text="(comma-separated domains)", 
-                  font=("TkDefaultFont", 9)).grid(row=3, column=1, sticky="w")
+        # ====== Configuration Section ======
+        config_frame = ttk.Frame(main_frame)
+        config_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        config_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(config_frame, text="Configuration:").pack(side="left")
+        ttk.Button(config_frame, text="Settings", command=self.open_settings).pack(side="left", padx=(10, 0))
         
         current_row += 1
         
         # ====== Prompt Section ======
-        prompt_frame = ttk.LabelFrame(main_frame, text="Prompt Template & Thinking Level", padding="10")
+        prompt_frame = ttk.LabelFrame(main_frame, text="Prompts, Sources & Thinking Level", padding="10")
         prompt_frame.grid(row=current_row, column=0, columnspan=3, sticky="ew", pady=(0, 10))
         prompt_frame.columnconfigure(0, weight=1)
         
-        ttk.Label(prompt_frame, text="Click 'Edit' to modify prompt templates and configure thinking level.").pack(side="left", padx=(0, 10))
-        ttk.Button(prompt_frame, text="Edit Prompts", command=self.open_prompt_editor).pack(side="left")
+        ttk.Label(prompt_frame, text="Click 'Edit' to modify prompts, preferred sources, and configure thinking level.").pack(side="left", padx=(0, 10))
+        ttk.Button(prompt_frame, text="Edit", command=self.open_prompt_editor).pack(side="left")
         
         current_row += 1
         
@@ -400,15 +561,7 @@ class CommentaryGeneratorApp:
     def load_api_key(self):
         """Load API key from environment variable if available."""
         api_key = os.environ.get("OPENAI_API_KEY", "")
-        if api_key:
-            self.api_key_var.set(api_key)
-    
-    def toggle_key_visibility(self):
-        """Toggle API key visibility."""
-        if self.show_key_var.get():
-            self.api_key_entry.configure(show="")
-        else:
-            self.api_key_entry.configure(show="*")
+        self.api_key = api_key
     
     def add_input_files(self):
         """Add input Excel files."""
@@ -450,7 +603,7 @@ class CommentaryGeneratorApp:
     
     def open_prompt_editor(self):
         """Open the prompt editor modal window."""
-        modal = PromptEditorModal(self.root, self.prompt_text_content, self.developer_prompt_content, self.thinking_level)
+        modal = PromptEditorModal(self.root, self.prompt_text_content, self.developer_prompt_content, self.thinking_level, self.sources_var.get())
         self.root.wait_window(modal.window)
         
         # Apply changes if user clicked Save
@@ -458,6 +611,16 @@ class CommentaryGeneratorApp:
             self.prompt_text_content = modal.result["prompt_template"]
             self.developer_prompt_content = modal.result["developer_prompt"]
             self.thinking_level = modal.result["thinking_level"]
+            self.sources_var.set(modal.result["preferred_sources"])
+    
+    def open_settings(self):
+        """Open the settings modal window."""
+        modal = SettingsModal(self.root, self.api_key)
+        self.root.wait_window(modal.window)
+        
+        # Apply changes if user clicked Save
+        if modal.result:
+            self.api_key = modal.result["api_key"]
     
     def update_progress(self, ticker: str, completed: int, total: int):
         """Update progress bar (called from async thread)."""
@@ -469,8 +632,8 @@ class CommentaryGeneratorApp:
     
     def validate_inputs(self) -> bool:
         """Validate user inputs before running."""
-        if not self.api_key_var.get().strip():
-            messagebox.showerror("Error", "Please enter your OpenAI API key.")
+        if not self.api_key.strip():
+            messagebox.showerror("Error", "Please configure your OpenAI API key in Settings.")
             return False
         
         if not self.input_files:
@@ -549,7 +712,7 @@ class CommentaryGeneratorApp:
         
         # Set up OpenAI client
         client = OpenAIClient(
-            api_key=self.api_key_var.get().strip(),
+            api_key=self.api_key.strip(),
             progress_callback=self.update_progress,
             developer_prompt=self.developer_prompt_content
         )
