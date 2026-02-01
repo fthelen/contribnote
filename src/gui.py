@@ -27,6 +27,7 @@ from src.prompt_manager import PromptManager, PromptConfig, get_default_preferre
 from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, DEFAULT_DEVELOPER_PROMPT
 from src.output_generator import create_output_workbook, create_log_file
 from src.ui_styles import Spacing, Typography, Dimensions
+from src import keystore
 
 
 def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
@@ -88,13 +89,15 @@ def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
 class SettingsModal:
     """Modal window for application settings including API key."""
 
-    def __init__(self, parent: tk.Tk, api_key: str):
+    def __init__(self, parent: tk.Tk, api_key: str, api_key_source: str, keyring_available: bool):
         """
         Initialize the settings modal window.
 
         Args:
             parent: Parent window
             api_key: Current OpenAI API key
+            api_key_source: Where the API key was loaded from ("env", "keyring", "config", "session", "none")
+            keyring_available: Whether system keychain storage is available
         """
         self.result = None  # Will be set to dict if user saves
 
@@ -127,18 +130,47 @@ class SettingsModal:
         self.api_key_entry = ttk.Entry(entry_frame, textvariable=self.api_key_var, show="*")
         self.api_key_entry.grid(row=0, column=0, sticky="ew")
 
-        self.show_key_var = tk.BooleanVar()
-        ttk.Checkbutton(entry_frame, text="Show", variable=self.show_key_var,
-                        command=self.toggle_key_visibility).grid(row=0, column=1, padx=(Spacing.CONTROL_GAP, 0))
+        self.show_button = ttk.Button(entry_frame, text="Hold to show")
+        self.show_button.grid(row=0, column=1, padx=(Spacing.CONTROL_GAP, 0))
+        self.show_button.bind("<ButtonPress-1>", self._show_key)
+        self.show_button.bind("<ButtonRelease-1>", self._hide_key)
+        self.show_button.bind("<Leave>", self._hide_key)
+        self.window.bind("<FocusOut>", self._hide_key)
 
         # Help text for API key
+        if keyring_available:
+            storage_line = "Stored securely in your system keychain."
+        else:
+            storage_line = "Secure storage unavailable; use OPENAI_API_KEY."
+        help_lines = [
+            storage_line,
+            "Hold the button to reveal the key.",
+            "Get your key from platform.openai.com or set OPENAI_API_KEY."
+        ]
         help_text = ttk.Label(
             api_frame,
-            text="Your API key is stored locally and never shared.\nGet your key from platform.openai.com",
+            text="\n".join(help_lines),
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
         help_text.grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+
+        source_note = ""
+        if api_key_source == "env":
+            source_note = "OPENAI_API_KEY is set and will be used by default."
+        elif api_key_source == "keyring":
+            source_note = "Using key stored in your system keychain."
+        elif api_key_source == "config":
+            source_note = "Using key from legacy config; it will be migrated."
+        elif api_key_source == "session":
+            source_note = "Key will be used for this session only."
+        if source_note:
+            ttk.Label(
+                api_frame,
+                text=source_note,
+                font=Typography.HELP_FONT,
+                foreground=Typography.HELP_COLOR
+            ).grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
 
         # Button frame - right aligned at bottom
         btn_frame = ttk.Frame(main_frame)
@@ -166,12 +198,13 @@ class SettingsModal:
 
         self.window.geometry(f"{width}x{height}+{x}+{y}")
     
-    def toggle_key_visibility(self):
-        """Toggle API key visibility."""
-        if self.show_key_var.get():
-            self.api_key_entry.configure(show="")
-        else:
-            self.api_key_entry.configure(show="*")
+    def _show_key(self, _event=None):
+        """Show the API key while the button is held."""
+        self.api_key_entry.configure(show="")
+
+    def _hide_key(self, _event=None):
+        """Hide the API key when the hold is released or focus changes."""
+        self.api_key_entry.configure(show="*")
     
     def on_cancel(self):
         """Cancel button clicked - discard changes."""
@@ -405,6 +438,8 @@ class CommentaryGeneratorApp:
         self.is_running = False
         self.thinking_level: str = "medium"  # Default thinking level
         self.api_key: str = ""  # API key storage
+        self.api_key_source: str = "none"
+        self.keyring_available: bool = keystore.keyring_available()
         self.sources_var = tk.StringVar(value=", ".join(get_default_preferred_sources()))
 
         # Prompt template and system prompt variables
@@ -456,9 +491,9 @@ class CommentaryGeneratorApp:
             with open(config_file, "r") as f:
                 config = json.load(f)
             
-            # Load API key
+            # Load API key (legacy config migration)
             if "api_key" in config:
-                self.api_key = config["api_key"]
+                self._migrate_api_key_from_config(config.get("api_key", ""))
             
             # Load prompt template
             if "prompt_template" in config:
@@ -494,7 +529,6 @@ class CommentaryGeneratorApp:
             config_dir.mkdir(parents=True, exist_ok=True)
             
             config = {
-                "api_key": self.api_key,
                 "prompt_template": self.prompt_text_content,
                 "developer_prompt": self.developer_prompt_content,
                 "thinking_level": self.thinking_level,
@@ -626,9 +660,33 @@ class CommentaryGeneratorApp:
         self.run_btn.pack(side="left")
     
     def load_api_key(self):
-        """Load API key from environment variable if available."""
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        self.api_key = api_key
+        """Load API key from environment or keychain."""
+        env_key = os.environ.get("OPENAI_API_KEY", "")
+        if env_key:
+            self.api_key = env_key
+            self.api_key_source = "env"
+            return
+
+        keyring_key = keystore.get_api_key()
+        if keyring_key:
+            self.api_key = keyring_key
+            self.api_key_source = "keyring"
+        else:
+            self.api_key = ""
+            self.api_key_source = "none"
+
+    def _migrate_api_key_from_config(self, config_key: str) -> None:
+        """Migrate legacy config API key into keychain when possible."""
+        if self.api_key.strip():
+            return
+        if not config_key.strip():
+            return
+        if self.keyring_available and keystore.set_api_key(config_key):
+            self.api_key = config_key
+            self.api_key_source = "keyring"
+            return
+        self.api_key = config_key
+        self.api_key_source = "config"
     
     def add_input_files(self):
         """Add input Excel files."""
@@ -682,12 +740,50 @@ class CommentaryGeneratorApp:
     
     def open_settings(self):
         """Open the settings modal window."""
-        modal = SettingsModal(self.root, self.api_key)
+        modal = SettingsModal(self.root, self.api_key, self.api_key_source, self.keyring_available)
         self.root.wait_window(modal.window)
         
         # Apply changes if user clicked Save
         if modal.result:
-            self.api_key = modal.result["api_key"]
+            env_key = os.environ.get("OPENAI_API_KEY", "")
+            env_present = bool(env_key)
+            new_key = modal.result["api_key"].strip()
+            if not new_key:
+                if self.keyring_available:
+                    keystore.delete_api_key()
+                if env_present:
+                    self.api_key = env_key
+                    self.api_key_source = "env"
+                else:
+                    self.api_key = ""
+                    self.api_key_source = "none"
+                return
+
+            saved = False
+            if self.keyring_available:
+                saved = keystore.set_api_key(new_key)
+
+            if not saved:
+                self.api_key_source = "session"
+                messagebox.showwarning(
+                    "Warning",
+                    "Could not save API key to system keychain. "
+                    "It will be used for this session only. "
+                    "Set OPENAI_API_KEY or enable keychain access to persist."
+                )
+            else:
+                self.api_key_source = "keyring"
+
+            if env_present:
+                self.api_key = env_key
+                self.api_key_source = "env"
+                messagebox.showinfo(
+                    "Info",
+                    "OPENAI_API_KEY is set and will be used by default. "
+                    "The stored key will be used if the environment variable is unset."
+                )
+            else:
+                self.api_key = new_key
     
     def update_progress(self, ticker: str, completed: int, total: int):
         """Update progress bar (called from async thread)."""
