@@ -11,7 +11,7 @@
 If you discover a security vulnerability in this project, please report it responsibly:
 
 1. **Do not** open a public GitHub issue for security vulnerabilities
-2. Email the maintainer directly at [your-email@example.com] with:
+2. Use [GitHub's private vulnerability reporting](https://github.com/fthelen/commentary/security/advisories/new) to submit your report with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
