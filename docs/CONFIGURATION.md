@@ -1,14 +1,14 @@
 # Configuration Reference
 
-The Commentary Generator stores user settings in a JSON configuration file that persists between sessions.
+ContribNote stores user settings in a JSON configuration file that persists between sessions.
 
 ## File Location
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/.commentary/config.json` |
-| Windows | `%APPDATA%\Commentary\config.json` |
-| Linux | `~/.config/Commentary/config.json` |
+| macOS | `~/.contribnote/config.json` |
+| Windows | `%APPDATA%\ContribNote\config.json` |
+| Linux | `~/.config/contribnote/config.json` |
 
 The directory is created automatically on first run.
 

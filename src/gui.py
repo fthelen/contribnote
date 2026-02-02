@@ -580,10 +580,10 @@ class CommentaryGeneratorApp:
         """Get the configuration directory path (platform-aware)."""
         if sys.platform == "win32":
             # Windows: use APPDATA environment variable
-            config_dir = Path(os.getenv("APPDATA", str(Path.home()))) / "Commentary"
+            config_dir = Path(os.getenv("APPDATA", str(Path.home()))) / "ContribNote"
         else:
-            # macOS/Linux: use ~/.commentary
-            config_dir = Path.home() / ".commentary"
+            # macOS/Linux: use ~/.contribnote
+            config_dir = Path.home() / ".contribnote"
         
         return config_dir
     

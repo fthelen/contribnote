@@ -1,4 +1,4 @@
-# Contributing to Commentary Generator
+# Contributing to ContribNote
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
@@ -7,8 +7,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/commentary.git
-   cd commentary
+   git clone https://github.com/YOUR_USERNAME/contribnote.git
+   cd contribnote
    ```
 3. **Create a virtual environment**:
    ```bash

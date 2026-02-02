@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 
-SERVICE_NAME = "CommentaryGenerator"
+SERVICE_NAME = "ContribNote"
 ACCOUNT_NAME = "openai_api_key"
 
 try:

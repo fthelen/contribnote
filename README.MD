@@ -1,4 +1,4 @@
-# Commentary Generator
+# ContribNote
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -85,8 +85,8 @@ Both are editable in the **Prompts & Sources** modal.
 ### Configuration Persistence
 
 Your settings are automatically saved after each successful run:
-- **macOS/Linux**: `~/.commentary/config.json`
-- **Windows**: `%APPDATA%\Commentary\config.json`
+- **macOS/Linux**: `~/.contribnote/config.json`
+- **Windows**: `%APPDATA%\ContribNote\config.json`
 
 Saved settings include: prompts, thinking level, preferred sources, and last output folder.
 
@@ -142,7 +142,7 @@ The app automatically cleans common prefixes, but malformed entries are rejected
 ## Folder Structure
 
 ```
-commentary/
+contribnote/
 ├── run_app.py              # Main entry point
 ├── requirements.txt        # Python dependencies
 ├── .env.example           # Example environment file
