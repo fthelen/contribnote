@@ -1,5 +1,7 @@
 # Commentary Generator
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 LLM-powered financial commentary generator for portfolio contributors and detractors.
 
 ## Quick Start
@@ -83,8 +85,8 @@ Both are editable in the **Prompts & Sources** modal.
 ### Configuration Persistence
 
 Your settings are automatically saved after each successful run:
-- **macOS**: `~/Library/Application Support/Commentary/config.json`
-- **Windows**: `%APPDATA%/Commentary/config.json`
+- **macOS/Linux**: `~/.commentary/config.json`
+- **Windows**: `%APPDATA%\Commentary\config.json`
 
 Saved settings include: prompts, thinking level, preferred sources, and last output folder.
 
@@ -162,3 +164,23 @@ commentary/
 │   └── CONFIGURATION.md   # Config file reference
 └── log/                    # Run logs (created on first run)
 ```
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Security
+
+For security concerns, please see [SECURITY.md](SECURITY.md).
