@@ -2,3 +2,24 @@
 __pycache__/
 *.pyc
 log/
+
+# Environment files (may contain secrets)
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE/editor settings (user-specific)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
