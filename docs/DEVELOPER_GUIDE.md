@@ -221,6 +221,28 @@ Centralized styling constants for consistent UI.
 
 ## Testing
 
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run tests for a specific module
+python -m pytest tests/test_selection_engine.py -v
+
+# Run with short traceback
+python -m pytest tests/ -v --tb=short
+```
+
+### Test Coverage
+
+| Module | Test File | Description |
+|--------|-----------|-------------|
+| `excel_parser.py` | `test_excel_parser.py` | SecurityRow, PortfolioData, file parsing |
+| `selection_engine.py` | `test_selection_engine.py` | Ranking logic, top/bottom, all holdings |
+| `prompt_manager.py` | `test_prompt_manager.py` | Template interpolation, config |
+| `output_generator.py` | `test_output_generator.py` | Excel output, log files, result merging |
+
 ### Sample Files
 
 Two sample FactSet files are included:
@@ -275,6 +297,14 @@ def parse_factset_file(file_path: Path) -> PortfolioData:
 ```
 
 ---
+
+## AI Coding Agents
+
+For AI assistants (GitHub Copilot, Cursor, Claude, etc.), see [agents.md](../agents.md) in the repo root. It provides:
+- Quick architecture overview
+- Common task patterns
+- Key constraints and gotchas
+- Files to read first
 
 ## Contributing
 

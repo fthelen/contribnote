@@ -99,6 +99,16 @@ FactSet Excel files must have:
 - Period string in row 6
 - Filename pattern: `PORTCODE_*_MMDDYYYY.xlsx` (PORTCODE extracted from text before first underscore)
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Architecture, module reference, contributing |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Config file schema and options |
+| [docs/GUI_GUIDE.md](docs/GUI_GUIDE.md) | User interface walkthrough |
+| [Process_Outline.md](Process_Outline.md) | Full workflow specification |
+| [agents.md](agents.md) | AI coding agent quick reference |
+
 ## Testing with Sample Data
 
 Two sample FactSet files are included for testing:
