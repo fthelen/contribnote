@@ -35,7 +35,6 @@ Output location: user selects the output folder/location for the generated workb
 Prompt template: user-editable at runtime (stored as a configurable template, not hard-coded).
 Preferred source domains: user-provided allow-list of reputable sites to prioritize for web search.
 Citations mode: require citations (default) vs. allow no-citation output (optional for speed/cost).
-Output format: JSON (schema-enforced) vs. plain text (optional).
 4) Data Extraction and Cleaning
 For each input workbook (portfolio):
 Open tab ContributionMasterRisk.
@@ -105,10 +104,9 @@ Prompt management (user control)
 - Inject the reputable-domain list into the prompt (human-readable) in addition to using it for web search filtering (e.g., “Prioritize sources from: …”).
 
 Output format and parsing
-**Note**: When using web search (the default), JSON mode is NOT available. The model returns plain text commentary.
 - Commentary is returned as plain text in the response message.
-- Citations are extracted from the built-in `url_citation` annotations (not from parsed JSON).
-- If web search is disabled, JSON mode with Structured Outputs can be used as a fallback.
+- Citations are extracted from the built-in `url_citation` annotations.
+- Note: Web search cannot be combined with JSON mode (API limitation), so plain text output is always used.
 
 Citations extraction and spreadsheet population
 - Preferred: extract URLs/titles from the built-in `url_citation` annotations in the message output and render the spreadsheet “Sources” column from those annotations.
@@ -130,14 +128,7 @@ Operational behavior:
 - Implement retry with backoff for transient API errors.
 - Capture per-request failures and write errors in-place (see validation rules).
 8) Response Validation Rules (No Link Fetching)
-Each model response must satisfy (based on chosen output format):
-
-If JSON mode (schema-enforced):
-- Response parses as valid JSON matching the schema.
-- `commentary` is non-empty.
-- If citations are required: the response includes at least one built-in `url_citation` annotation OR at least one citation URL in a `citations` array.
-
-If plain-text mode:
+Each model response must satisfy:
 - Commentary text is non-empty.
 - If citations are required: at least one built-in `url_citation` annotation is present.
 
