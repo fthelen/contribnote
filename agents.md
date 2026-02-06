@@ -155,3 +155,8 @@ python -m pytest tests/ --cov=src --cov-report=term-missing
 
 - Removed JSON mode references (web search requires plain text)
 - Added comprehensive test suite (77 tests across 4 modules)
+
+-## Branching & Commits
+
+- **Branch naming**: adopt an industry-style prefix to describe the work type (e.g., `bugfix/`, `feature/`, `chore/`), then add a short hyphenated description: `bugfix/fix-contributor-sort` or `feature/ui-scroll`. Stick to lowercase, keep the suffix focused on one change, and avoid spaces. That keeps the intent clear while grouping branches by purpose.
+- **Commit hygiene**: stage only logically related files (use `git add path`) and write descriptive messages like `Fix contributor signal sort order` or `Add configuration for web search citations`. One commit per fix makes reviews easier. Squash or rebase locally if you need cleaner history before pushing.

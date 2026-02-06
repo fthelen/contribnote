@@ -2,11 +2,18 @@
 __pycache__/
 *.pyc
 log/
+*.log
+*.tmp
+*.bak
 
 # Environment files (may contain secrets)
 .env
 .env.*
 !.env.example
+.envrc
+.envrc.local
+.secrets
+.secrets.*
 
 # Virtual environments
 .venv/
@@ -23,5 +30,37 @@ env/
 dist/
 build/
 *.egg-info/
+
+# Test/coverage caches
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.nox/
+.tox/
+.cache/
+
+# OS-specific
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Secrets/keys/certs
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Local DBs
+*.sqlite
+*.sqlite3
+*.db
 
 .github/
