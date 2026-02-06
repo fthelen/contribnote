@@ -29,6 +29,22 @@ from src.output_generator import create_output_workbook, create_log_file
 from src.ui_styles import Spacing, Typography, Dimensions
 from src import keystore
 
+AVAILABLE_MODELS = [
+    "gpt-5-nano-2025-08-07",
+    "gpt-5.2-pro-2025-12-11",
+    "gpt-5.2-2025-12-11",
+]
+DEFAULT_MODEL = "gpt-5.2-2025-12-11"
+
+
+def get_reasoning_levels_for_model(model_id: str) -> list[str]:
+    """Return supported reasoning effort levels for a model."""
+    if model_id.startswith("gpt-5.2-pro"):
+        return ["medium", "high", "xhigh"]
+    if model_id.startswith("gpt-5.2"):
+        return ["none", "low", "medium", "high", "xhigh"]
+    return ["low", "medium", "high"]
+
 
 def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
     """
@@ -217,7 +233,7 @@ class SettingsModal:
         y = max(0, y)
 
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-    
+
     def _show_key(self, _event=None):
         """Show the API key while the button is held."""
         self.api_key_entry.configure(show="")
@@ -249,6 +265,8 @@ class PromptEditorModal:
         current_prompt: str,
         current_developer_prompt: str,
         current_thinking_level: str,
+        current_model: str,
+        available_models: list[str],
         current_sources: str,
         current_text_verbosity: str,
         prioritize_sources: bool = True
@@ -260,7 +278,9 @@ class PromptEditorModal:
             parent: Parent window
             current_prompt: Current prompt template text
             current_developer_prompt: Current system/developer prompt text
-            current_thinking_level: Current thinking level ("low", "medium", "high", "xhigh")
+            current_thinking_level: Current thinking level ("none", "low", "medium", "high", "xhigh")
+            current_model: Current model ID
+            available_models: List of available model IDs
             current_sources: Current preferred sources (comma-separated domains)
             current_text_verbosity: Current text verbosity ("low", "medium", "high")
             prioritize_sources: Whether to inject source prioritization into prompts
@@ -292,16 +312,29 @@ class PromptEditorModal:
         ttk.Label(level_frame, text="Reasoning effort:").grid(row=0, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP))
         self.thinking_var = tk.StringVar(value=current_thinking_level)
 
-        thinking_combo = ttk.Combobox(
+        self.thinking_combo = ttk.Combobox(
             level_frame,
             textvariable=self.thinking_var,
-            values=["low", "medium", "high", "xhigh"],
+            values=[],
             state="readonly",
             width=12
         )
-        thinking_combo.grid(row=0, column=1, sticky="w")
+        self.thinking_combo.grid(row=0, column=1, sticky="w")
 
-        ttk.Label(level_frame, text="Text verbosity:").grid(row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        ttk.Label(level_frame, text="Model:").grid(row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_value = current_model if current_model in available_models else DEFAULT_MODEL
+        self.model_var = tk.StringVar(value=model_value)
+        model_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.model_var,
+            values=available_models,
+            state="readonly",
+            width=28
+        )
+        model_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_reasoning_levels())
+
+        ttk.Label(level_frame, text="Text verbosity:").grid(row=2, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
         self.text_verbosity_var = tk.StringVar(value=current_text_verbosity)
 
         verbosity_combo = ttk.Combobox(
@@ -311,16 +344,17 @@ class PromptEditorModal:
             state="readonly",
             width=12
         )
-        verbosity_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        verbosity_combo.grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Help text for thinking levels
-        help_text = ttk.Label(
+        self.reasoning_help_label = ttk.Label(
             level_frame,
-            text="low: Fastest | medium: Balanced (default) | high: Thorough | xhigh: Most thorough",
+            text="",
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
-        help_text.grid(row=2, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        self.reasoning_help_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        self._update_reasoning_levels()
 
         verbosity_help = ttk.Label(
             level_frame,
@@ -328,7 +362,7 @@ class PromptEditorModal:
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
-        verbosity_help.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        verbosity_help.grid(row=4, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Preferred sources section
         sources_frame = ttk.LabelFrame(main_frame, text="Preferred Sources for Web Search", padding=Spacing.FRAME_PADDING)
@@ -468,6 +502,31 @@ class PromptEditorModal:
         y = max(0, y)
 
         self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _build_reasoning_help_text(self, levels: list[str]) -> str:
+        parts = []
+        if "none" in levels:
+            parts.append("none: No reasoning")
+        if "low" in levels:
+            parts.append("low: Fastest")
+        if "medium" in levels:
+            parts.append("medium: Balanced")
+        if "high" in levels:
+            parts.append("high: Thorough")
+        if "xhigh" in levels:
+            parts.append("xhigh: Most thorough")
+        return " | ".join(parts)
+
+    def _update_reasoning_levels(self) -> None:
+        model_id = self.model_var.get()
+        levels = get_reasoning_levels_for_model(model_id)
+        self.thinking_combo["values"] = levels
+
+        if self.thinking_var.get() not in levels:
+            default_level = "none" if "none" in levels else "medium"
+            self.thinking_var.set(default_level)
+
+        self.reasoning_help_label.configure(text=self._build_reasoning_help_text(levels))
     
     def reset_user_prompt(self):
         """Reset user prompt to default template."""
@@ -522,6 +581,7 @@ class PromptEditorModal:
             "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
             "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
             "thinking_level": self.thinking_var.get(),
+            "model": self.model_var.get(),
             "text_verbosity": self.text_verbosity_var.get(),
             "preferred_sources": ", ".join(valid_domains),  # Return cleaned domains
             "prioritize_sources": self.prioritize_sources_var.get()
@@ -544,6 +604,7 @@ class CommentaryGeneratorApp:
         self.is_running = False
         self.thinking_level: str = "medium"  # Default thinking level
         self.text_verbosity: str = "low"  # Default verbosity level
+        self.model_id: str = DEFAULT_MODEL
         self.api_key: str = ""  # API key storage
         self.api_key_source: str = "none"
         self.keyring_available: bool = keystore.keyring_available()
@@ -627,6 +688,11 @@ class CommentaryGeneratorApp:
 
             if "text_verbosity" in config:
                 self.text_verbosity = config["text_verbosity"]
+
+            if "model" in config and config["model"] in AVAILABLE_MODELS:
+                self.model_id = config["model"]
+            else:
+                self.model_id = DEFAULT_MODEL
             
             # Load preferred sources
             if "preferred_sources" in config:
@@ -661,6 +727,7 @@ class CommentaryGeneratorApp:
                 "prompt_template": self.prompt_text_content,
                 "developer_prompt": self.developer_prompt_content,
                 "thinking_level": self.thinking_level,
+                "model": self.model_id,
                 "text_verbosity": self.text_verbosity,
                 "preferred_sources": [s.strip() for s in self.sources_var.get().split(",") if s.strip()],
                 "require_citations": self.require_citations,
@@ -865,6 +932,8 @@ class CommentaryGeneratorApp:
             self.prompt_text_content,
             self.developer_prompt_content,
             self.thinking_level,
+            self.model_id,
+            AVAILABLE_MODELS,
             self.sources_var.get(),
             self.text_verbosity,
             self.prioritize_sources
@@ -876,6 +945,7 @@ class CommentaryGeneratorApp:
             self.prompt_text_content = modal.result["prompt_template"]
             self.developer_prompt_content = modal.result["developer_prompt"]
             self.thinking_level = modal.result["thinking_level"]
+            self.model_id = modal.result["model"]
             self.text_verbosity = modal.result["text_verbosity"]
             self.sources_var.set(modal.result["preferred_sources"])
             self.prioritize_sources = modal.result["prioritize_sources"]
@@ -1040,7 +1110,8 @@ class CommentaryGeneratorApp:
         client = OpenAIClient(
             api_key=self.api_key.strip(),
             progress_callback=self.update_progress,
-            developer_prompt=self.developer_prompt_content
+            developer_prompt=self.developer_prompt_content,
+            model=self.model_id
         )
         
         # Build all API requests
