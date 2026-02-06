@@ -549,6 +549,11 @@ class CommentaryGeneratorApp:
         self.keyring_available: bool = keystore.keyring_available()
         self.sources_var = tk.StringVar(value=", ".join(get_default_preferred_sources()))
 
+        self._generation_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._cancel_event: Optional[asyncio.Event] = None
+        self._cancel_requested: bool = False
+        self._exit_after_cancel: bool = False
+
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
         self.developer_prompt_content: str = DEFAULT_DEVELOPER_PROMPT
@@ -565,6 +570,8 @@ class CommentaryGeneratorApp:
         self.setup_ui()
         self.load_api_key()
         self.load_config()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_exit_requested)
 
     def _configure_styles(self):
         """Configure custom ttk styles for the application."""
@@ -780,7 +787,7 @@ class CommentaryGeneratorApp:
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=current_row, column=0, sticky="e", pady=(0, Spacing.SECTION_MARGIN))
 
-        ttk.Button(btn_frame, text="Exit", command=self.root.quit).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
+        ttk.Button(btn_frame, text="Exit", command=self.on_exit_requested).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         self.run_btn = ttk.Button(btn_frame, text="Generate Commentary", command=self.run_generation, style="Primary.TButton")
         self.run_btn.pack(side="left")
     
@@ -964,6 +971,8 @@ class CommentaryGeneratorApp:
             return
         
         self.is_running = True
+        self._cancel_requested = False
+        self._exit_after_cancel = False
         self.run_btn.configure(state="disabled")
         self.progress_var.set(0)
         self.status_var.set("Starting...")
@@ -979,17 +988,25 @@ class CommentaryGeneratorApp:
             # Create new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            self._generation_loop = loop
+            self._cancel_event = asyncio.Event()
+            if self._cancel_requested:
+                self._cancel_event.set()
             
             result = loop.run_until_complete(self._async_generate())
             
             # Update UI on main thread
             self.root.after(0, lambda: self._on_generation_complete(result))
             
+        except asyncio.CancelledError:
+            self.root.after(0, self._on_generation_cancelled)
         except Exception as e:
             self.root.after(0, lambda: self._on_generation_error(str(e)))
         finally:
             self.is_running = False
             self.root.after(0, lambda: self.run_btn.configure(state="normal"))
+            self._generation_loop = None
+            self._cancel_event = None
     
     async def _async_generate(self) -> dict:
         """Async generation logic."""
@@ -1055,8 +1072,12 @@ class CommentaryGeneratorApp:
             use_web_search=True,
             thinking_level=self.thinking_level,
             text_verbosity=self.text_verbosity,
-            require_citations=self.require_citations
+            require_citations=self.require_citations,
+            cancel_event=self._cancel_event
         )
+
+        if self._cancel_event and self._cancel_event.is_set():
+            raise asyncio.CancelledError()
         
         # Organize results by portfolio
         commentary_results: dict[str, dict[str, CommentaryResult]] = {}
@@ -1102,6 +1123,28 @@ class CommentaryGeneratorApp:
             "errors": len(errors),
             "duration": (end_time - start_time).total_seconds()
         }
+
+    def request_cancel(self) -> None:
+        """Request cancellation of an in-progress generation."""
+        self._cancel_requested = True
+        self.status_var.set("Cancellation requested... waiting for in-flight requests to stop")
+        self.run_btn.configure(state="disabled")
+        if self._generation_loop and self._cancel_event:
+            self._generation_loop.call_soon_threadsafe(self._cancel_event.set)
+
+    def on_exit_requested(self) -> None:
+        """Handle exit requests, warning if generation is in progress."""
+        if not self.is_running:
+            self.root.destroy()
+            return
+
+        confirm = messagebox.askyesno(
+            "Generation in Progress",
+            "Generation is running. Cancel now and exit? In-flight requests may still complete server-side."
+        )
+        if confirm:
+            self._exit_after_cancel = True
+            self.request_cancel()
     
     def _on_generation_complete(self, result: dict):
         """Handle successful generation completion."""
@@ -1120,6 +1163,28 @@ class CommentaryGeneratorApp:
             f"Log file:\n{result['log_path']}"
         )
         messagebox.showinfo("Success", message)
+        self.status_var.set("Ready")
+        self.progress_var.set(0)
+
+    def _on_generation_cancelled(self) -> None:
+        """Handle generation cancellation."""
+        self.progress_var.set(0)
+        self.status_var.set("Cancelled")
+        if self._exit_after_cancel:
+            should_exit = messagebox.askyesno(
+                "Cancellation Complete",
+                "Cancellation complete. In-flight requests may still finish on the server.\n\nExit the application now?"
+            )
+            if should_exit:
+                self.root.destroy()
+                return
+            self.status_var.set("Ready")
+        else:
+            messagebox.showinfo(
+                "Cancelled",
+                "Generation cancelled. In-flight requests may still finish on the server."
+            )
+            self.status_var.set("Ready")
     
     def _on_generation_error(self, error: str):
         """Handle generation error."""
