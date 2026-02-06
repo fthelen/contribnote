@@ -166,6 +166,12 @@ Async OpenAI Responses API client with full feature set.
 - PII protection: UUID keys with local mapping
 - Citation cleaning: removes inline URLs, creates footnotes
 
+**Model Reasoning Levels:**
+- `gpt-5.2-2025-12-11`: supports `none`, `low`, `medium`, `high`, `xhigh` (default: `none`)
+- `gpt-5.2-pro-2025-12-11`: supports `medium`, `high`, `xhigh` (no `none` or `low`)
+- `gpt-5-nano-2025-08-07`: supports `low`, `medium`, `high`
+- The GUI reasoning dropdown adapts to the selected model, and the client normalizes any unsupported `thinking_level` values to a valid default.
+
 **Key Methods:**
 - `generate_commentary(ticker, security_name, prompt, ...)` → `CommentaryResult`
 - `generate_commentary_batch(requests, ...)` → `list[CommentaryResult]`

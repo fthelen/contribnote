@@ -85,6 +85,35 @@ def test_generate_commentary_batch_raises_cancelled_error_when_cancelled(monkeyp
         asyncio.run(_run())
 
 
+def test_reasoning_levels_for_model():
+    assert OpenAIClient._reasoning_levels_for_model("gpt-5.2-2025-12-11") == [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert OpenAIClient._reasoning_levels_for_model("gpt-5.2-pro-2025-12-11") == [
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert OpenAIClient._reasoning_levels_for_model("gpt-5-nano-2025-08-07") == [
+        "low",
+        "medium",
+        "high",
+    ]
+
+
+def test_normalize_thinking_level():
+    client = OpenAIClient(api_key="test-key", model="gpt-5.2-2025-12-11")
+
+    assert client._normalize_thinking_level("gpt-5.2-2025-12-11", "none") == "none"
+    assert client._normalize_thinking_level("gpt-5.2-2025-12-11", "invalid") == "none"
+    assert client._normalize_thinking_level("gpt-5.2-pro-2025-12-11", "none") == "medium"
+    assert client._normalize_thinking_level("gpt-5-nano-2025-08-07", "xhigh") == "medium"
+
+
 class DummyAsyncClient:
     def __init__(self, post=None, get=None):
         self._post = post

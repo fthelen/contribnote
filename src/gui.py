@@ -37,6 +37,15 @@ AVAILABLE_MODELS = [
 DEFAULT_MODEL = "gpt-5.2-2025-12-11"
 
 
+def get_reasoning_levels_for_model(model_id: str) -> list[str]:
+    """Return supported reasoning effort levels for a model."""
+    if model_id.startswith("gpt-5.2-pro"):
+        return ["medium", "high", "xhigh"]
+    if model_id.startswith("gpt-5.2"):
+        return ["none", "low", "medium", "high", "xhigh"]
+    return ["low", "medium", "high"]
+
+
 def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
     """
     Validate and clean domain inputs for web search.
@@ -224,7 +233,7 @@ class SettingsModal:
         y = max(0, y)
 
         self.window.geometry(f"{width}x{height}+{x}+{y}")
-    
+
     def _show_key(self, _event=None):
         """Show the API key while the button is held."""
         self.api_key_entry.configure(show="")
@@ -269,7 +278,7 @@ class PromptEditorModal:
             parent: Parent window
             current_prompt: Current prompt template text
             current_developer_prompt: Current system/developer prompt text
-            current_thinking_level: Current thinking level ("low", "medium", "high", "xhigh")
+            current_thinking_level: Current thinking level ("none", "low", "medium", "high", "xhigh")
             current_model: Current model ID
             available_models: List of available model IDs
             current_sources: Current preferred sources (comma-separated domains)
@@ -303,14 +312,14 @@ class PromptEditorModal:
         ttk.Label(level_frame, text="Reasoning effort:").grid(row=0, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP))
         self.thinking_var = tk.StringVar(value=current_thinking_level)
 
-        thinking_combo = ttk.Combobox(
+        self.thinking_combo = ttk.Combobox(
             level_frame,
             textvariable=self.thinking_var,
-            values=["low", "medium", "high", "xhigh"],
+            values=[],
             state="readonly",
             width=12
         )
-        thinking_combo.grid(row=0, column=1, sticky="w")
+        self.thinking_combo.grid(row=0, column=1, sticky="w")
 
         ttk.Label(level_frame, text="Model:").grid(row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
         model_value = current_model if current_model in available_models else DEFAULT_MODEL
@@ -323,6 +332,7 @@ class PromptEditorModal:
             width=28
         )
         model_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_reasoning_levels())
 
         ttk.Label(level_frame, text="Text verbosity:").grid(row=2, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
         self.text_verbosity_var = tk.StringVar(value=current_text_verbosity)
@@ -337,13 +347,14 @@ class PromptEditorModal:
         verbosity_combo.grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Help text for thinking levels
-        help_text = ttk.Label(
+        self.reasoning_help_label = ttk.Label(
             level_frame,
-            text="low: Fastest | medium: Balanced (default) | high: Thorough | xhigh: Most thorough",
+            text="",
             font=Typography.HELP_FONT,
             foreground=Typography.HELP_COLOR
         )
-        help_text.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        self.reasoning_help_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        self._update_reasoning_levels()
 
         verbosity_help = ttk.Label(
             level_frame,
@@ -491,6 +502,31 @@ class PromptEditorModal:
         y = max(0, y)
 
         self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _build_reasoning_help_text(self, levels: list[str]) -> str:
+        parts = []
+        if "none" in levels:
+            parts.append("none: No reasoning")
+        if "low" in levels:
+            parts.append("low: Fastest")
+        if "medium" in levels:
+            parts.append("medium: Balanced")
+        if "high" in levels:
+            parts.append("high: Thorough")
+        if "xhigh" in levels:
+            parts.append("xhigh: Most thorough")
+        return " | ".join(parts)
+
+    def _update_reasoning_levels(self) -> None:
+        model_id = self.model_var.get()
+        levels = get_reasoning_levels_for_model(model_id)
+        self.thinking_combo["values"] = levels
+
+        if self.thinking_var.get() not in levels:
+            default_level = "none" if "none" in levels else "medium"
+            self.thinking_var.set(default_level)
+
+        self.reasoning_help_label.configure(text=self._build_reasoning_help_text(levels))
     
     def reset_user_prompt(self):
         """Reset user prompt to default template."""

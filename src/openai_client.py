@@ -101,6 +101,24 @@ class OpenAIClient:
         )
         jitter = backoff * self.rate_limit.jitter_factor
         return backoff + random.uniform(-jitter, jitter)
+
+    @staticmethod
+    def _reasoning_levels_for_model(model_id: str) -> list[str]:
+        """Return supported reasoning effort levels for a model."""
+        if model_id.startswith("gpt-5.2-pro"):
+            return ["medium", "high", "xhigh"]
+        if model_id.startswith("gpt-5.2"):
+            return ["none", "low", "medium", "high", "xhigh"]
+        return ["low", "medium", "high"]
+
+    def _normalize_thinking_level(self, model_id: str, thinking_level: str) -> str:
+        """Normalize reasoning effort to a valid value for the current model."""
+        allowed = self._reasoning_levels_for_model(model_id)
+        if thinking_level in allowed:
+            return thinking_level
+        if model_id.startswith("gpt-5.2") and "none" in allowed:
+            return "none"
+        return "medium"
     
     def _clean_inline_citations(self, text: str, url_to_footnote: dict[str, int]) -> str:
         """
@@ -213,7 +231,7 @@ class OpenAIClient:
             prompt: The prompt to send
             use_web_search: Whether to enable web search tool
             preferred_domains: Optional list of domains to prioritize for web search
-            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            thinking_level: Reasoning effort level ("none", "low", "medium", "high", "xhigh")
             text_verbosity: Text verbosity ("low", "medium", "high")
             
         Returns:
@@ -224,6 +242,9 @@ class OpenAIClient:
             "Content-Type": "application/json"
         }
         
+        # Normalize reasoning effort based on model support
+        thinking_level = self._normalize_thinking_level(self.model, thinking_level)
+
         # Build request payload for Responses API
         # Note: Web search cannot be used with JSON mode, so we use plain text
         # and extract citations from url_citation annotations
@@ -251,6 +272,7 @@ class OpenAIClient:
         # Determine timeout based on thinking level
         # High reasoning can take 2-5 minutes, medium 1-2 minutes, low <1 minute
         timeout_map = {
+            "none": 120.0,     # 2 minutes
             "low": 120.0,      # 2 minutes
             "medium": 300.0,   # 5 minutes
             "high": 600.0,     # 10 minutes
@@ -452,7 +474,7 @@ class OpenAIClient:
             prompt: Formatted prompt
             portcode: Portfolio code (for internal tracking)
             use_web_search: Whether to enable web search
-            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            thinking_level: Reasoning effort level ("none", "low", "medium", "high", "xhigh")
             text_verbosity: Text verbosity ("low", "medium", "high")
             require_citations: Whether to require citations in the response
             client: Optional httpx client for connection pooling
@@ -515,7 +537,7 @@ class OpenAIClient:
         Args:
             requests: List of dicts with keys: ticker, security_name, prompt, portcode
             use_web_search: Whether to enable web search
-            thinking_level: Reasoning effort level ("low", "medium", "high", "xhigh")
+            thinking_level: Reasoning effort level ("none", "low", "medium", "high", "xhigh")
             text_verbosity: Text verbosity ("low", "medium", "high")
             require_citations: Whether to require citations in responses
             
