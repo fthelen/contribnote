@@ -60,6 +60,7 @@ Files follow a strict layout:
 - **Important**: Web search cannot be combined with JSON mode—output is always plain text
 - Citations extracted from `url_citation` annotations
 - Rate limiting via asyncio.Semaphore (default 20 concurrent)
+- Response controls: `thinking_level`, `text_verbosity`, and `require_citations`
 - PII protection: UUIDs map to PORTCODE|TICKER internally
 
 ## Data Flow
@@ -88,14 +89,14 @@ Input Excel → excel_parser → selection_engine → prompt_manager → openai_
 ### Changing Prompt Template
 
 - Default template in [prompt_manager.py](src/prompt_manager.py)
-- Variables: `{ticker}`, `{security_name}`, `{period}`, `{source_instructions}`
+- Variables: `{ticker}`, `{security_name}`, `{period}`, `{source_instructions}`, `{preferred_sources}` (optional)
 - User can override via GUI
 
 ### Adding API Parameters
 
 - Modify `_make_request()` in [openai_client.py](src/openai_client.py)
 - Update request body structure
-- Handle new response fields in parsing
+- Handle new response fields in parsing and `generate_commentary()` / `generate_commentary_batch()`
 
 ## Testing
 
@@ -122,12 +123,12 @@ python -m pytest tests/ --cov=src --cov-report=term-missing
 |------|---------|
 | `requirements.txt` | Python dependencies |
 | `.env.example` | Template for environment variables |
-| `config.json` | User settings (created at runtime in app support folder) |
+| `config.json` | User settings (created at runtime in the config directory) |
 
 ### Config Locations
 
-- **macOS**: `~/Library/Application Support/Commentary/config.json`
-- **Windows**: `%APPDATA%/Commentary/config.json`
+- **macOS/Linux**: `~/.contribnote/config.json`
+- **Windows**: `%APPDATA%/ContribNote/config.json`
 
 ## Important Constraints
 
@@ -138,7 +139,7 @@ python -m pytest tests/ --cov=src --cov-report=term-missing
 
 ## Code Style
 
-- **Formatter**: Black
+- **Formatter**: Black (optional, default settings)
 - **Type hints**: Required for all public functions
 - **Docstrings**: Google style
 - **Imports**: Standard library → third-party → local

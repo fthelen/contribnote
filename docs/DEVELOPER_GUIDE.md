@@ -1,6 +1,6 @@
 # Developer Guide
 
-This guide covers setup, architecture, and contribution guidelines for the Commentary Generator.
+This guide covers setup, architecture, and contribution guidelines for ContribNote.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ This guide covers setup, architecture, and contribution guidelines for the Comme
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/fthelen/commentary.git
-cd commentary
+git clone https://github.com/fthelen/commentary.git contribnote
+cd contribnote
 ```
 
 ### 2. Create Virtual Environment
@@ -142,12 +142,14 @@ Manages prompt templates with variable interpolation.
 - `{ticker}` — Security ticker
 - `{security_name}` — Full name
 - `{period}` — Time period string
-- `{preferred_sources}` — Comma-separated domain list
+- `{source_instructions}` — Source guidance text
+- `{preferred_sources}` — Comma-separated domain list (optional)
 
 **Key Functions:**
-- `build_prompt(template, security, period, sources)` → `str`
-- `get_default_template()` → `str`
-- `get_default_sources()` → `list[str]`
+- `build_prompt(ticker, security_name, period, template_override=None)` → `str`
+- `set_template(template)` → `None`
+- `set_preferred_sources(sources)` → `None`
+- `get_default_preferred_sources()` → `list[str]`
 
 ### `openai_client.py`
 
@@ -160,12 +162,13 @@ Async OpenAI Responses API client with full feature set.
 **Key Features:**
 - Bounded concurrency via `asyncio.Semaphore` (default: 20)
 - Exponential backoff: 1s initial, 60s max, ±20% jitter
+- Response controls: `thinking_level`, `text_verbosity`, `require_citations`
 - PII protection: UUID keys with local mapping
 - Citation cleaning: removes inline URLs, creates footnotes
 
 **Key Methods:**
-- `generate_commentary(security, period, prompt, sources)` → `CommentaryResult`
-- `generate_batch(securities, ...)` → `list[CommentaryResult]`
+- `generate_commentary(ticker, security_name, prompt, ...)` → `CommentaryResult`
+- `generate_commentary_batch(requests, ...)` → `list[CommentaryResult]`
 
 ### `output_generator.py`
 
@@ -191,7 +194,7 @@ System keychain integration for secure API key storage.
 - `delete_api_key()` → `bool`
 
 **Storage Locations:**
-- macOS: Keychain Access (service: "Commentary")
+- macOS: Keychain Access (service: "ContribNote")
 - Windows: Credential Manager
 
 ### `gui.py`
@@ -199,12 +202,12 @@ System keychain integration for secure API key storage.
 Full tkinter GUI implementation.
 
 **Key Classes:**
-- `CommentaryApp` — Main application window
-- `SettingsModal` — API key configuration dialog
-- `PromptsModal` — Prompt editor with tabs
+- `CommentaryGeneratorApp` — Main application window
+- `SettingsModal` — API key configuration and citations dialog
+- `PromptEditorModal` — Prompt editor with tabs
 
 **Config Persistence:**
-- Location: `~/Library/Application Support/Commentary/config.json` (macOS)
+- Location: `~/.contribnote/config.json` (macOS/Linux) or `%APPDATA%/ContribNote/config.json` (Windows)
 - Saved on successful run completion
 - See [CONFIGURATION.md](CONFIGURATION.md) for schema
 
@@ -274,8 +277,8 @@ Two sample FactSet files are included:
 
 ## Code Style
 
-- **Formatter**: Black (default settings)
-- **Linter**: Ruff
+- **Formatter**: Black (optional, default settings)
+- **Linter**: Ruff (optional, default settings)
 - **Type Hints**: Required for all public functions
 - **Docstrings**: Google style
 
