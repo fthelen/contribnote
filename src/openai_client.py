@@ -152,6 +152,7 @@ class OpenAIClient:
         response_id: str,
         headers: dict,
         max_wait: float,
+        cancel_event: Optional[asyncio.Event] = None,
         poll_interval: float = 2.0
     ) -> dict:
         """
@@ -169,6 +170,9 @@ class OpenAIClient:
         """
         start = time.monotonic()
         while True:
+            if cancel_event and cancel_event.is_set():
+                raise asyncio.CancelledError()
+
             elapsed = time.monotonic() - start
             if elapsed > max_wait:
                 raise httpx.TimeoutException(
@@ -198,7 +202,8 @@ class OpenAIClient:
         use_web_search: bool = True,
         preferred_domains: list[str] | None = None,
         thinking_level: str = "medium",
-        text_verbosity: str = "low"
+        text_verbosity: str = "low",
+        cancel_event: Optional[asyncio.Event] = None
     ) -> dict:
         """
         Make a single API request with retry logic using the Responses API.
@@ -256,6 +261,9 @@ class OpenAIClient:
         max_retries = 5
         for attempt in range(max_retries):
             try:
+                if cancel_event and cancel_event.is_set():
+                    raise asyncio.CancelledError()
+
                 response = await client.post(
                     f"{self.base_url}/responses",
                     headers=headers,
@@ -290,7 +298,8 @@ class OpenAIClient:
                         client=client,
                         response_id=response_id,
                         headers=headers,
-                        max_wait=timeout
+                        max_wait=timeout,
+                        cancel_event=cancel_event
                     )
 
                 return data
@@ -431,7 +440,8 @@ class OpenAIClient:
         thinking_level: str = "medium",
         text_verbosity: str = "low",
         require_citations: bool = True,
-        client: Optional[httpx.AsyncClient] = None
+        client: Optional[httpx.AsyncClient] = None,
+        cancel_event: Optional[asyncio.Event] = None
     ) -> CommentaryResult:
         """
         Generate commentary for a single security.
@@ -460,7 +470,8 @@ class OpenAIClient:
                     prompt,
                     use_web_search=use_web_search,
                     thinking_level=thinking_level,
-                    text_verbosity=text_verbosity
+                    text_verbosity=text_verbosity,
+                    cancel_event=cancel_event
                 )
                 result = self._parse_response(response, ticker, security_name)
                 result.request_key = request_key
@@ -495,7 +506,8 @@ class OpenAIClient:
         use_web_search: bool = True,
         thinking_level: str = "medium",
         text_verbosity: str = "low",
-        require_citations: bool = True
+        require_citations: bool = True,
+        cancel_event: Optional[asyncio.Event] = None
     ) -> list[CommentaryResult]:
         """
         Generate commentary for multiple securities with bounded concurrency.
@@ -527,19 +539,36 @@ class OpenAIClient:
                     thinking_level=thinking_level,
                     text_verbosity=text_verbosity,
                     require_citations=require_citations,
-                    client=client
+                    client=client,
+                    cancel_event=cancel_event
                 )
                 completed += 1
                 if self.progress_callback:
                     self.progress_callback(req["ticker"], completed, total)
                 return result
         
+        async def _cancel_watcher(tasks: list[asyncio.Task]) -> None:
+            if not cancel_event:
+                return
+            await cancel_event.wait()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
         async with httpx.AsyncClient() as client:
             tasks = [
-                process_with_semaphore(req, i, client)
+                asyncio.create_task(process_with_semaphore(req, i, client))
                 for i, req in enumerate(requests)
             ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            watcher = asyncio.create_task(_cancel_watcher(tasks)) if cancel_event else None
+            try:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                if watcher:
+                    watcher.cancel()
+
+        if cancel_event and cancel_event.is_set():
+            raise asyncio.CancelledError()
         
         # Convert any exceptions to error results
         final_results = []

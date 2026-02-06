@@ -305,6 +305,54 @@ class TestParseExcelFile:
         assert len(result.securities) == 1
         assert result.securities[0].ticker == "AAPL"
 
+    def test_parse_security_name_header_blank_uses_left_of_ticker(self):
+        """Should read Security Name from the column left of Ticker when header is blank."""
+        headers = [None, "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+
+        mock_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=headers,
+            data_rows=data_rows
+        )
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk"]
+        mock_wb.__getitem__ = MagicMock(return_value=mock_ws)
+
+        with patch('src.excel_parser.openpyxl.load_workbook', return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert len(result.securities) == 1
+        assert result.securities[0].security_name == "Apple Inc."
+
+    def test_parse_security_name_header_present_is_used_case_insensitive(self):
+        """Should detect Security Name header regardless of case."""
+        headers = ["SECURITY NAME", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+
+        mock_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=headers,
+            data_rows=data_rows
+        )
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk"]
+        mock_wb.__getitem__ = MagicMock(return_value=mock_ws)
+
+        with patch('src.excel_parser.openpyxl.load_workbook', return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert len(result.securities) == 1
+        assert result.securities[0].security_name == "Apple Inc."
+
 
 # --- parse_multiple_files Tests ---
 

@@ -92,19 +92,23 @@ def parse_excel_file(file_path: Path) -> PortfolioData:
     
     for col in range(1, ws.max_column + 1):
         header = ws.cell(row=7, column=col).value
-        if header:
-            header_str = str(header).strip()
-            if header_str == "Ticker":
-                col_map["Ticker"] = col
-                ticker_col = col
-            elif header_str == "Security Name":
-                col_map["Security Name"] = col
-            elif header_str == "Port. Ending Weight":
-                col_map["Port. Ending Weight"] = col
-            elif header_str == "Contribution To Return":
-                col_map["Contribution To Return"] = col
-            elif header_str == "GICS":
-                col_map["GICS"] = col
+        if header is None:
+            continue
+        header_str = str(header).strip()
+        if not header_str:
+            continue
+        header_key = header_str.lower()
+        if header_key == "ticker":
+            col_map["Ticker"] = col
+            ticker_col = col
+        elif header_key == "security name":
+            col_map["Security Name"] = col
+        elif header_key == "port. ending weight":
+            col_map["Port. Ending Weight"] = col
+        elif header_key == "contribution to return":
+            col_map["Contribution To Return"] = col
+        elif header_key == "gics":
+            col_map["GICS"] = col
     
     # Validate required columns found
     required_cols = ["Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
