@@ -4,3 +4,8 @@ name = "contribnote"
 
 [setup]
 script = ""
+
+[[actions]]
+name = "venv"
+icon = "tool"
+command = "source .venv/bin/activate"
