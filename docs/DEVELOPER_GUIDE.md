@@ -60,8 +60,9 @@ python run_app.py
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         GUI (gui.py)                            │
-│  • File selection      • API modal         • Progress tracking  │
-│  • Output folder       • Settings modals   • Config persistence │
+│  • File selection      • API Settings dialog    • Progress tracking  │
+│  • Output folder       • Contribution Settings dialog               │
+│                         • Attribution Settings dialog   • Config persistence │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
