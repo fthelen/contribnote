@@ -45,14 +45,14 @@ class Dimensions:
     """Standard window and widget dimensions."""
 
     # Main window
-    MAIN_WIDTH = 850
-    MAIN_HEIGHT = 700
+    MAIN_WIDTH = 980
+    MAIN_HEIGHT = 780
     MAIN_MIN_WIDTH = 750
     MAIN_MIN_HEIGHT = 600
 
     # Settings modal
     SETTINGS_WIDTH = 550
-    SETTINGS_HEIGHT = 300
+    SETTINGS_HEIGHT = 240
 
     # Prompt Editor modal
     PROMPT_EDITOR_WIDTH = 700

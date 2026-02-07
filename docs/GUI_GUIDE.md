@@ -46,9 +46,9 @@ Choose how many securities to process per portfolio:
 - Writes one `overview` row above the security-level table
 
 #### 6. Action Buttons
-- **Settings** — Opens API key configuration modal
-- **Prompts & Sources** — Opens prompt editor and source configuration
-- **Attribution Workflow** — Opens separate attribution prompt/model settings
+- **API Settings** — Footer button (bottom-left) for API key configuration modal
+- **Contribution Settings** — Opens contribution prompt/model settings
+- **Attribution Settings** — Opens separate attribution prompt/model settings
 - **Generate Commentary** — Starts the commentary generation process
 
 #### 7. Progress Area
@@ -59,7 +59,7 @@ During generation:
 
 ---
 
-## Settings Modal
+## API Settings Modal
 
 ![Settings Modal](screenshots/settings_modal.png)
 *Screenshot placeholder: Add settings_modal.png showing the API key dialog*
@@ -81,12 +81,12 @@ Enter your OpenAI API key here if not using an environment variable.
 
 ---
 
-## Prompts & Sources Modal
+## Contribution Settings Modal
 
 ![Prompts Modal](screenshots/prompts_modal.png)
 *Screenshot placeholder: Add prompts_modal.png showing the tabbed interface*
 
-This modal lets you configure reasoning effort, text verbosity, preferred sources, and prompts.
+This modal lets you configure reasoning effort, text verbosity, and prompts for security-level commentary.
 
 ### User Prompt (Template)
 
@@ -140,13 +140,13 @@ Controls response length and detail:
 | **Medium** | More detail | Deeper context |
 | **High** | Most detail | Maximum depth |
 
-### Source Instructions Preview
+### Citation Preferences (Main Window)
 
-Shows the exact source guidance text that will be injected into the prompt based on your preferred sources.
+Global citation/source controls now live in **Generation Options** on the main window.
 
-### Preferred Sources
-
-A list of trusted financial news domains. The AI prioritizes these when searching for information.
+- **Require Citations**: Mark responses without citations as failed
+- **Prioritize Sources**: Instruct prompt builders to prioritize preferred domains
+- **Preferred Sources**: Comma-separated domain list used by both contribution and attribution workflows
 
 **Default Sources:**
 - reuters.com
@@ -173,7 +173,7 @@ A list of trusted financial news domains. The AI prioritizes these when searchin
 3. Select output folder
 4. Choose holdings mode
 5. Optionally enable **Run Attribution Overview**
-6. Optionally configure **Attribution Workflow**
+6. Optionally configure **Attribution Settings**
 7. Click **Generate Commentary**
 
 ### During Generation
@@ -250,7 +250,7 @@ To complete this guide, capture screenshots of:
 
 1. **main_window.png** — Full application with sample files loaded
 2. **settings_modal.png** — API key dialog with masked key
-3. **prompts_modal.png** — Prompts & Sources with User Prompt tab active
+3. **prompts_modal.png** — Contribution Settings with User Prompt tab active
 4. **progress.png** — Mid-run showing progress bar and status
 5. **complete.png** — Completion dialog with success message
 
