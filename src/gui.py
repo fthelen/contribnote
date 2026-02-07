@@ -238,6 +238,8 @@ class ToolTip:
         try:
             self.widget.after_cancel(self._after_id)
         except tk.TclError:
+            # The widget or Tcl interpreter may already be gone; ignore errors during
+            # best-effort cancellation of a pending tooltip show callback.
             pass
         finally:
             self._after_id = None
