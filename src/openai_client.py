@@ -6,12 +6,11 @@ structured outputs, and retry logic.
 """
 
 import asyncio
-import json
 import os
 import random
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Callable
 import httpx
 
@@ -33,6 +32,16 @@ class CommentaryResult:
     success: bool = True
     error_message: str = ""
     request_key: str = ""
+
+
+@dataclass
+class AttributionOverviewResult:
+    """Result of a portfolio-level attribution overview request."""
+    portcode: str
+    output: str
+    citations: list[Citation]
+    success: bool = True
+    error_message: str = ""
 
 
 @dataclass
@@ -608,4 +617,160 @@ class OpenAIClient:
             else:
                 final_results.append(result)
         
+        return final_results
+
+    async def generate_attribution_overview(
+        self,
+        portcode: str,
+        prompt: str,
+        use_web_search: bool = True,
+        thinking_level: str = "medium",
+        text_verbosity: str = "low",
+        require_citations: bool = True,
+        client: Optional[httpx.AsyncClient] = None,
+        cancel_event: Optional[asyncio.Event] = None
+    ) -> AttributionOverviewResult:
+        """
+        Generate one portfolio-level attribution overview.
+
+        Args:
+            portcode: Portfolio code
+            prompt: Formatted attribution prompt
+            use_web_search: Whether to enable web search
+            thinking_level: Reasoning effort level
+            text_verbosity: Text verbosity
+            require_citations: Whether citations are required
+            client: Optional shared httpx client
+            cancel_event: Optional cancellation event
+
+        Returns:
+            AttributionOverviewResult with output and citations
+        """
+
+        async def _do_request(http_client: httpx.AsyncClient) -> AttributionOverviewResult:
+            try:
+                response = await self._make_request(
+                    http_client,
+                    prompt,
+                    use_web_search=use_web_search,
+                    thinking_level=thinking_level,
+                    text_verbosity=text_verbosity,
+                    cancel_event=cancel_event
+                )
+                parsed = self._parse_response(
+                    response=response,
+                    ticker=portcode,
+                    security_name="Attribution Overview"
+                )
+
+                if require_citations and parsed.success and not parsed.citations:
+                    parsed.success = False
+                    parsed.error_message = "No citations found in response (citations are required)"
+
+                return AttributionOverviewResult(
+                    portcode=portcode,
+                    output=parsed.commentary if parsed.success else "",
+                    citations=parsed.citations if parsed.success else [],
+                    success=parsed.success,
+                    error_message=parsed.error_message
+                )
+
+            except Exception as e:
+                return AttributionOverviewResult(
+                    portcode=portcode,
+                    output="",
+                    citations=[],
+                    success=False,
+                    error_message=f"API request failed: {str(e)}"
+                )
+
+        if client is not None:
+            return await _do_request(client)
+        async with httpx.AsyncClient() as new_client:
+            return await _do_request(new_client)
+
+    async def generate_attribution_overview_batch(
+        self,
+        requests: list[dict],
+        use_web_search: bool = True,
+        thinking_level: str = "medium",
+        text_verbosity: str = "low",
+        require_citations: bool = True,
+        cancel_event: Optional[asyncio.Event] = None
+    ) -> list[AttributionOverviewResult]:
+        """
+        Generate attribution overviews for multiple portfolios.
+
+        Args:
+            requests: List of dicts with keys: portcode, prompt
+            use_web_search: Whether to enable web search
+            thinking_level: Reasoning effort level
+            text_verbosity: Text verbosity
+            require_citations: Whether citations are required
+            cancel_event: Optional cancellation event
+
+        Returns:
+            List of AttributionOverviewResult objects
+        """
+        semaphore = asyncio.Semaphore(self.rate_limit.max_concurrent)
+        completed = 0
+        total = len(requests)
+
+        async def process_with_semaphore(req: dict, client: httpx.AsyncClient) -> AttributionOverviewResult:
+            nonlocal completed
+            async with semaphore:
+                result = await self.generate_attribution_overview(
+                    portcode=req["portcode"],
+                    prompt=req["prompt"],
+                    use_web_search=use_web_search,
+                    thinking_level=thinking_level,
+                    text_verbosity=text_verbosity,
+                    require_citations=require_citations,
+                    client=client,
+                    cancel_event=cancel_event
+                )
+                completed += 1
+                if self.progress_callback:
+                    self.progress_callback(req["portcode"], completed, total)
+                return result
+
+        async def _cancel_watcher(tasks: list[asyncio.Task]) -> None:
+            if not cancel_event:
+                return
+            await cancel_event.wait()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
+        async with httpx.AsyncClient() as client:
+            tasks = [
+                asyncio.create_task(process_with_semaphore(req, client))
+                for req in requests
+            ]
+            watcher = asyncio.create_task(_cancel_watcher(tasks)) if cancel_event else None
+            try:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                if watcher:
+                    watcher.cancel()
+
+        if cancel_event and cancel_event.is_set():
+            raise asyncio.CancelledError()
+
+        final_results: list[AttributionOverviewResult] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                req = requests[i]
+                final_results.append(
+                    AttributionOverviewResult(
+                        portcode=req["portcode"],
+                        output="",
+                        citations=[],
+                        success=False,
+                        error_message=str(result)
+                    )
+                )
+            else:
+                final_results.append(result)
+
         return final_results

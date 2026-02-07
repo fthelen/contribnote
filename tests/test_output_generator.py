@@ -15,7 +15,7 @@ from src.selection_engine import (
     SecurityType,
 )
 from src.excel_parser import SecurityRow
-from src.openai_client import CommentaryResult, Citation
+from src.openai_client import CommentaryResult, Citation, AttributionOverviewResult
 from src.output_generator import (
     OutputRow,
     format_citations,
@@ -81,6 +81,23 @@ def make_commentary_result(
         citations=citations or [],
         success=success,
         error_message=error_message
+    )
+
+
+def make_attribution_overview_result(
+    portcode: str,
+    output: str = "Attribution overview.",
+    citations: list[Citation] = None,
+    success: bool = True,
+    error_message: str = "",
+) -> AttributionOverviewResult:
+    """Helper to create an AttributionOverviewResult for testing."""
+    return AttributionOverviewResult(
+        portcode=portcode,
+        output=output,
+        citations=citations or [],
+        success=success,
+        error_message=error_message,
     )
 
 
@@ -279,6 +296,96 @@ class TestCreateOutputWorkbook:
             
             assert output_folder.exists()
             assert result_path.exists()
+
+    def test_writes_overview_table_above_security_table(self):
+        """Should write overview table in rows 1-2 and shift security table down."""
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_folder = Path(tmpdir)
+
+            ranked = [make_ranked_security("AAPL", 0.15)]
+            selection = make_selection_result(ranked, portcode="PORT1")
+            commentary = {"PORT1": {"AAPL": make_commentary_result("AAPL", "Security commentary.")}}
+            overview = {
+                "PORT1": make_attribution_overview_result(
+                    portcode="PORT1",
+                    output="Portfolio attribution overview text.",
+                    citations=[Citation(url="https://reuters.com/overview")],
+                )
+            }
+
+            result_path = create_output_workbook(
+                [selection],
+                commentary,
+                output_folder,
+                attribution_overview_results=overview,
+            )
+
+            wb = openpyxl.load_workbook(result_path)
+            ws = wb["PORT1"]
+
+            assert ws["A1"].value == "Category"
+            assert ws["B1"].value == "Output"
+            assert ws["C1"].value == "Sources"
+            assert ws["A2"].value == "overview"
+            assert "Portfolio attribution overview text." in ws["B2"].value
+            assert "[1] https://reuters.com/overview" in ws["C2"].value
+
+            # Security table should start at row 4 when overview is present.
+            assert ws["A4"].value == "Ticker"
+            assert ws["A5"].value == "AAPL"
+            wb.close()
+
+    def test_no_overview_keeps_legacy_security_header_row(self):
+        """Should preserve legacy layout when overview results are not provided."""
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_folder = Path(tmpdir)
+
+            ranked = [make_ranked_security("AAPL", 0.15)]
+            selection = make_selection_result(ranked, portcode="PORT1")
+            commentary = {"PORT1": {"AAPL": make_commentary_result("AAPL", "Security commentary.")}}
+
+            result_path = create_output_workbook([selection], commentary, output_folder)
+
+            wb = openpyxl.load_workbook(result_path)
+            ws = wb["PORT1"]
+            assert ws["A1"].value == "Ticker"
+            assert ws["A2"].value == "AAPL"
+            wb.close()
+
+    def test_overview_warning_row_writes_error_text_and_empty_sources(self):
+        """Failed overview results should render warning text with empty sources."""
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_folder = Path(tmpdir)
+
+            ranked = [make_ranked_security("AAPL", 0.15)]
+            selection = make_selection_result(ranked, portcode="PORT1")
+            commentary = {"PORT1": {"AAPL": make_commentary_result("AAPL", "Security commentary.")}}
+            overview = {
+                "PORT1": make_attribution_overview_result(
+                    portcode="PORT1",
+                    success=False,
+                    error_message="WARNING: No attribution data available.",
+                )
+            }
+
+            result_path = create_output_workbook(
+                [selection],
+                commentary,
+                output_folder,
+                attribution_overview_results=overview,
+            )
+
+            wb = openpyxl.load_workbook(result_path)
+            ws = wb["PORT1"]
+            assert ws["B2"].value == "WARNING: No attribution data available."
+            assert ws["C2"].value in ("", None)
+            wb.close()
 
 
 # --- create_log_file Tests ---

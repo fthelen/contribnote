@@ -5,10 +5,13 @@ import pytest
 
 from src.prompt_manager import (
     DEFAULT_PROMPT_TEMPLATE,
+    DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE,
     SOURCE_INSTRUCTIONS_WITH_PRIORITY,
     SOURCE_INSTRUCTIONS_DEFAULT,
     PromptConfig,
     PromptManager,
+    AttributionPromptConfig,
+    AttributionPromptManager,
     get_default_preferred_sources,
 )
 
@@ -186,6 +189,73 @@ class TestPromptManager:
         
         assert manager.config.template == DEFAULT_PROMPT_TEMPLATE
         assert manager.config.additional_instructions == ""
+
+
+class TestAttributionPromptConfig:
+    """Tests for AttributionPromptConfig dataclass defaults and overrides."""
+
+    def test_default_values(self):
+        config = AttributionPromptConfig()
+
+        assert config.template == DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE
+        assert config.preferred_sources == []
+        assert config.additional_instructions == ""
+        assert config.thinking_level == "medium"
+        assert config.prioritize_sources is True
+
+    def test_custom_values(self):
+        config = AttributionPromptConfig(
+            template="Custom attribution template",
+            preferred_sources=["example.com"],
+            additional_instructions="Use short bullet points",
+            thinking_level="high",
+            prioritize_sources=False,
+        )
+
+        assert config.template == "Custom attribution template"
+        assert config.preferred_sources == ["example.com"]
+        assert config.additional_instructions == "Use short bullet points"
+        assert config.thinking_level == "high"
+        assert config.prioritize_sources is False
+
+
+class TestAttributionPromptManager:
+    """Tests for the attribution prompt manager."""
+
+    def test_build_prompt_with_required_placeholders(self):
+        manager = AttributionPromptManager()
+
+        prompt = manager.build_prompt(
+            portcode="XYZ",
+            period="12/31/2025 to 1/31/2026",
+            sector_attrib="| Sector | Value |\n| --- | --- |\n| Tech | 1.2 |",
+            country_attrib="No country data available.",
+        )
+
+        assert "XYZ" in prompt
+        assert "12/31/2025 to 1/31/2026" in prompt
+        assert "Tech" in prompt
+        assert "No country data available." in prompt
+
+    def test_build_prompt_with_preferred_sources(self):
+        config = AttributionPromptConfig(preferred_sources=["reuters.com", "bloomberg.com"])
+        manager = AttributionPromptManager(config=config)
+
+        prompt = manager.build_prompt(
+            portcode="XYZ",
+            period="Q4 2025",
+            sector_attrib="sector markdown",
+            country_attrib="country markdown",
+        )
+
+        assert "reuters.com" in prompt
+        assert "bloomberg.com" in prompt
+
+    def test_get_source_instructions_disabled(self):
+        config = AttributionPromptConfig(prioritize_sources=False)
+        manager = AttributionPromptManager(config=config)
+
+        assert manager.get_source_instructions() == ""
 
 
 # --- get_default_preferred_sources Tests ---

@@ -13,8 +13,8 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .selection_engine import SelectionResult, RankedSecurity, SelectionMode
-from .openai_client import CommentaryResult, Citation
+from .selection_engine import SelectionResult
+from .openai_client import CommentaryResult, Citation, AttributionOverviewResult
 
 
 @dataclass
@@ -100,7 +100,8 @@ def merge_results(
 def create_output_workbook(
     selections: list[SelectionResult],
     commentary_results: dict[str, dict[str, CommentaryResult]],
-    output_folder: Path
+    output_folder: Path,
+    attribution_overview_results: Optional[dict[str, AttributionOverviewResult]] = None
 ) -> Path:
     """
     Create the output Excel workbook.
@@ -109,6 +110,7 @@ def create_output_workbook(
         selections: List of SelectionResult objects (one per portfolio)
         commentary_results: Nested dict: portcode -> ticker -> CommentaryResult
         output_folder: Folder to save the output file
+        attribution_overview_results: Optional mapping of portcode to overview result
         
     Returns:
         Path to the created workbook
@@ -127,7 +129,6 @@ def create_output_workbook(
         wb.remove(wb.active)  # Remove default sheet
     
     # Define styles
-    header_font = Font(bold=True, size=11)
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_font_white = Font(bold=True, size=11, color="FFFFFF")
     thin_border = Border(
@@ -163,10 +164,52 @@ def create_output_workbook(
         
         # Merge results
         rows = merge_results(selection, port_commentary)
-        
-        # Write headers
+
+        has_overview = (
+            attribution_overview_results is not None
+            and selection.portcode in attribution_overview_results
+        )
+        security_header_row = 4 if has_overview else 1
+        security_data_start_row = security_header_row + 1
+
+        if has_overview:
+            overview_result = attribution_overview_results[selection.portcode]
+
+            # Overview table header
+            overview_headers = ["Category", "Output", "Sources"]
+            for col, header in enumerate(overview_headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = header_font_white
+                cell.fill = header_fill
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+            if overview_result.success:
+                overview_output = overview_result.output
+                overview_sources = format_citations(overview_result.citations)
+                overview_is_error = False
+            else:
+                # Preserve warning/error wording from upstream workflow.
+                overview_output = overview_result.error_message
+                overview_sources = ""
+                overview_is_error = True
+
+            category_cell = ws.cell(row=2, column=1, value="overview")
+            category_cell.border = thin_border
+
+            output_cell = ws.cell(row=2, column=2, value=overview_output)
+            output_cell.border = thin_border
+            output_cell.alignment = wrap_alignment
+            if overview_is_error:
+                output_cell.font = Font(color="FF0000")
+
+            sources_cell = ws.cell(row=2, column=3, value=overview_sources)
+            sources_cell.border = thin_border
+            sources_cell.alignment = wrap_alignment
+
+        # Write security table headers
         for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
+            cell = ws.cell(row=security_header_row, column=col, value=header)
             cell.font = header_font_white
             cell.fill = header_fill
             cell.border = thin_border
@@ -177,7 +220,7 @@ def create_output_workbook(
             ws.column_dimensions[get_column_letter(col)].width = width
         
         # Write data rows
-        for row_num, output_row in enumerate(rows, 2):
+        for row_num, output_row in enumerate(rows, security_data_start_row):
             # Ticker
             ws.cell(row=row_num, column=1, value=output_row.ticker).border = thin_border
             
@@ -215,7 +258,7 @@ def create_output_workbook(
             sources_cell.alignment = wrap_alignment
         
         # Freeze header row
-        ws.freeze_panes = 'A2'
+        ws.freeze_panes = f"A{security_data_start_row}"
     
     # Save workbook
     wb.save(output_path)

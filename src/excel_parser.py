@@ -9,7 +9,6 @@ Reads FactSet Excel files and extracts portfolio data.
 - End marker: first blank Ticker cell
 """
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -38,10 +37,39 @@ class PortfolioData:
     period: str
     securities: list[SecurityRow]
     source_file: Path
+    sector_attribution: Optional["AttributionTable"] = None
+    country_attribution: Optional["AttributionTable"] = None
+    attribution_warnings: Optional[list[str]] = None
     
     def get_filtered_securities(self) -> list[SecurityRow]:
         """Return securities excluding cash/fees rows."""
         return [s for s in self.securities if not s.is_cash_or_fee()]
+
+    def __post_init__(self) -> None:
+        """Initialize mutable defaults safely."""
+        if self.attribution_warnings is None:
+            self.attribution_warnings = []
+
+
+@dataclass
+class AttributionRow:
+    """A single top-level attribution row."""
+    category: str
+    metrics: dict[str, float | str]
+
+
+@dataclass
+class AttributionTable:
+    """Parsed attribution table from a workbook sheet."""
+    sheet_name: str
+    category_header: str
+    metric_headers: list[str]
+    top_level_rows: list[AttributionRow]
+    total_row: Optional[AttributionRow]
+
+    def has_data(self) -> bool:
+        """Return True when the table has usable attribution content."""
+        return bool(self.top_level_rows or self.total_row)
 
 
 def extract_portcode_from_filename(filename: str) -> str:
@@ -55,6 +83,173 @@ def extract_portcode_from_filename(filename: str) -> str:
     if parts:
         return parts[0]
     return base_name
+
+
+def _parse_numeric_or_text(value: object) -> float | str:
+    """Coerce numeric-looking values to float, otherwise return cleaned text."""
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        return float(text.replace(",", ""))
+    except ValueError:
+        return text
+
+
+def _parse_metric_headers(ws: openpyxl.worksheet.worksheet.Worksheet) -> list[str]:
+    """Parse attribution metric headers from row 7, columns B+."""
+    headers: list[str] = []
+    for col in range(2, ws.max_column + 1):
+        value = ws.cell(row=7, column=col).value
+        if value is None:
+            continue
+        header = str(value).strip()
+        if header:
+            headers.append(header)
+    return headers
+
+
+def _build_attribution_row(
+    ws: openpyxl.worksheet.worksheet.Worksheet,
+    row_num: int,
+    category: str,
+    metric_headers: list[str]
+) -> AttributionRow:
+    """Build an AttributionRow from a worksheet row."""
+    metrics: dict[str, float | str] = {}
+    for offset, header in enumerate(metric_headers, start=2):
+        value = ws.cell(row=row_num, column=offset).value
+        metrics[header] = _parse_numeric_or_text(value)
+    return AttributionRow(category=category, metrics=metrics)
+
+
+def _parse_attribution_sheet(
+    ws: openpyxl.worksheet.worksheet.Worksheet,
+    sheet_name: str,
+    file_path: Path,
+    warnings: list[str]
+) -> Optional[AttributionTable]:
+    """Parse an attribution sheet, keeping only top-level outline rows."""
+    metric_headers = _parse_metric_headers(ws)
+    if not metric_headers:
+        warnings.append(
+            f"{file_path.name} [{sheet_name}]: Missing metric headers in row 7; "
+            "attribution data skipped."
+        )
+        return None
+
+    category_header = ""
+    top_level_rows: list[AttributionRow] = []
+    total_row: Optional[AttributionRow] = None
+
+    for row_num in range(8, ws.max_row + 1):
+        row_dim = ws.row_dimensions.get(row_num)
+        outline_level = row_dim.outlineLevel if row_dim is not None else 0
+        if outline_level != 0:
+            continue
+
+        category_raw = ws.cell(row=row_num, column=1).value
+        if category_raw is None:
+            continue
+
+        category = str(category_raw).strip()
+        if not category:
+            continue
+
+        # First top-level row at/after row 8 is the category header row.
+        if not category_header:
+            category_header = category
+            continue
+
+        row = _build_attribution_row(ws, row_num, category, metric_headers)
+
+        if category.lower() == "total":
+            total_row = row
+            break
+
+        top_level_rows.append(row)
+
+    if not category_header:
+        warnings.append(
+            f"{file_path.name} [{sheet_name}]: No top-level category header found; "
+            "attribution data skipped."
+        )
+        return None
+
+    if total_row is None:
+        warnings.append(
+            f"{file_path.name} [{sheet_name}]: Total row not found; parsed top-level "
+            "rows without total."
+        )
+
+    table = AttributionTable(
+        sheet_name=sheet_name,
+        category_header=category_header,
+        metric_headers=metric_headers,
+        top_level_rows=top_level_rows,
+        total_row=total_row,
+    )
+
+    if not table.has_data():
+        warnings.append(
+            f"{file_path.name} [{sheet_name}]: No top-level attribution rows were found."
+        )
+        return None
+
+    return table
+
+
+def _format_markdown_metric(value: float | str) -> str:
+    """Format an attribution metric value for markdown output."""
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return f"{value:.6g}"
+    return str(value)
+
+
+def format_attribution_table_markdown(
+    table: Optional[AttributionTable],
+    empty_message: str
+) -> str:
+    """
+    Format an attribution table for prompt injection as markdown.
+
+    Includes top-level rows and a Total subsection when available.
+    """
+    if table is None or not table.has_data():
+        return empty_message
+
+    headers = [table.category_header] + table.metric_headers
+    lines: list[str] = []
+    lines.append(f"### {table.sheet_name}")
+    lines.append("")
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+
+    for row in table.top_level_rows:
+        values = [row.category] + [
+            _format_markdown_metric(row.metrics.get(header, ""))
+            for header in table.metric_headers
+        ]
+        lines.append("| " + " | ".join(values) + " |")
+
+    if table.total_row is not None:
+        lines.append("")
+        lines.append("Total:")
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        total_values = [table.total_row.category] + [
+            _format_markdown_metric(table.total_row.metrics.get(header, ""))
+            for header in table.metric_headers
+        ]
+        lines.append("| " + " | ".join(total_values) + " |")
+
+    return "\n".join(lines)
 
 
 def parse_excel_file(file_path: Path) -> PortfolioData:
@@ -71,6 +266,7 @@ def parse_excel_file(file_path: Path) -> PortfolioData:
         ValueError: If the file format is invalid or required data is missing
     """
     wb = openpyxl.load_workbook(file_path, data_only=True)
+    attribution_warnings: list[str] = []
     
     # Check for required sheet
     sheet_name = "ContributionMasterRisk"
@@ -159,6 +355,30 @@ def parse_excel_file(file_path: Path) -> PortfolioData:
         
         row_num += 1
     
+    # Parse optional attribution tabs (exact names only)
+    sector_sheet_name = "AttributionbySector"
+    country_sheet_name = "AttributionbyCountryMasterRisk"
+
+    if sector_sheet_name in wb.sheetnames:
+        sector_attribution = _parse_attribution_sheet(
+            wb[sector_sheet_name], sector_sheet_name, file_path, attribution_warnings
+        )
+    else:
+        sector_attribution = None
+        attribution_warnings.append(
+            f"{file_path.name}: Missing expected attribution tab '{sector_sheet_name}'."
+        )
+
+    if country_sheet_name in wb.sheetnames:
+        country_attribution = _parse_attribution_sheet(
+            wb[country_sheet_name], country_sheet_name, file_path, attribution_warnings
+        )
+    else:
+        country_attribution = None
+        attribution_warnings.append(
+            f"{file_path.name}: Missing optional attribution tab '{country_sheet_name}'."
+        )
+
     wb.close()
     
     # Extract portcode from filename
@@ -168,7 +388,10 @@ def parse_excel_file(file_path: Path) -> PortfolioData:
         portcode=portcode,
         period=period,
         securities=securities,
-        source_file=file_path
+        source_file=file_path,
+        sector_attribution=sector_attribution,
+        country_attribution=country_attribution,
+        attribution_warnings=attribution_warnings,
     )
 
 

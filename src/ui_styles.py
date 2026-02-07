@@ -58,6 +58,10 @@ class Dimensions:
     PROMPT_EDITOR_WIDTH = 700
     PROMPT_EDITOR_HEIGHT = 750
 
+    # Attribution Workflow modal
+    ATTRIBUTION_EDITOR_WIDTH = 700
+    ATTRIBUTION_EDITOR_HEIGHT = 720
+
     # File list height (lines)
     FILE_LIST_HEIGHT = 5
 

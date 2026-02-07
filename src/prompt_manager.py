@@ -5,7 +5,6 @@ Manages prompt templates for LLM requests with variable interpolation.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 
@@ -30,6 +29,25 @@ SOURCE_INSTRUCTIONS_WITH_PRIORITY = """Prioritize information from these reputab
 
 SOURCE_INSTRUCTIONS_DEFAULT = """Include citations from reputable financial news sources for key facts."""
 
+DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = """You are preparing a portfolio-level attribution overview for {portcode} covering period {period}.
+
+Use the supplied attribution data exactly as provided.
+
+Sector attribution data:
+{sector_attrib}
+
+Country attribution data:
+{country_attrib}
+
+Write one concise paragraph highlighting the most material contributors to attribution and key differences vs benchmark.
+
+{source_instructions}"""
+
+DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = (
+    "Write a concise, factual attribution overview at the portfolio level. "
+    "Prioritize material drivers and avoid speculation."
+)
+
 
 @dataclass
 class PromptConfig:
@@ -39,6 +57,16 @@ class PromptConfig:
     additional_instructions: str = ""
     thinking_level: str = "medium"
     prioritize_sources: bool = True  # Whether to inject source instructions into prompts
+
+
+@dataclass
+class AttributionPromptConfig:
+    """Configuration for portfolio-level attribution prompt generation."""
+    template: str = DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE
+    preferred_sources: list[str] = field(default_factory=list)
+    additional_instructions: str = ""
+    thinking_level: str = "medium"
+    prioritize_sources: bool = True
 
 
 class PromptManager:
@@ -119,6 +147,60 @@ class PromptManager:
         """Reset template to default."""
         self.config.template = DEFAULT_PROMPT_TEMPLATE
         self.config.additional_instructions = ""
+
+
+class AttributionPromptManager:
+    """Manages prompt templates for portfolio-level attribution overviews."""
+
+    def __init__(self, config: Optional[AttributionPromptConfig] = None):
+        self.config = config or AttributionPromptConfig()
+
+    def get_source_instructions(self) -> str:
+        """Generate source instructions based on configuration."""
+        if not self.config.prioritize_sources:
+            return ""
+        if self.config.preferred_sources:
+            sources_str = ", ".join(self.config.preferred_sources)
+            return SOURCE_INSTRUCTIONS_WITH_PRIORITY.format(preferred_sources=sources_str)
+        return SOURCE_INSTRUCTIONS_DEFAULT
+
+    def build_prompt(
+        self,
+        portcode: str,
+        period: str,
+        sector_attrib: str,
+        country_attrib: str,
+        template_override: Optional[str] = None
+    ) -> str:
+        """
+        Build a portfolio-level attribution prompt.
+
+        Args:
+            portcode: Portfolio identifier
+            period: Reporting period
+            sector_attrib: Markdown-formatted sector attribution context
+            country_attrib: Markdown-formatted country attribution context
+            template_override: Optional custom template
+
+        Returns:
+            Formatted prompt string
+        """
+        template = template_override or self.config.template
+        source_instructions = self.get_source_instructions()
+
+        prompt = template.format(
+            portcode=portcode,
+            period=period,
+            sector_attrib=sector_attrib,
+            country_attrib=country_attrib,
+            source_instructions=source_instructions,
+            preferred_sources=", ".join(self.config.preferred_sources) if self.config.preferred_sources else ""
+        )
+
+        if self.config.additional_instructions:
+            prompt += f"\n\nAdditional instructions: {self.config.additional_instructions}"
+
+        return prompt
 
 
 def get_default_preferred_sources() -> list[str]:

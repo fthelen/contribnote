@@ -19,8 +19,17 @@ The directory is created automatically on first run.
   "prompt_template": "string",
   "developer_prompt": "string",
   "thinking_level": "low" | "medium" | "high" | "xhigh",
+  "model": "string",
   "text_verbosity": "low" | "medium" | "high",
   "preferred_sources": ["string"],
+  "require_citations": true | false,
+  "prioritize_sources": true | false,
+  "run_attribution_overview": true | false,
+  "attribution_prompt_template": "string",
+  "attribution_developer_prompt": "string",
+  "attribution_thinking_level": "low" | "medium" | "high" | "xhigh",
+  "attribution_model": "string",
+  "attribution_text_verbosity": "low" | "medium" | "high",
   "output_folder": "string"
 }
 ```
@@ -107,6 +116,65 @@ Controls response length and detail.
 
 ---
 
+### `run_attribution_overview`
+
+**Type:** `boolean`
+
+Controls whether the optional portfolio-level attribution overview workflow runs.
+
+**Default:** `false`
+
+---
+
+### `attribution_prompt_template`
+
+**Type:** `string`
+
+Template used for the portfolio-level attribution overview request.
+
+**Available Variables:**
+| Variable | Description |
+|----------|-------------|
+| `{portcode}` | Portfolio code |
+| `{period}` | Portfolio period |
+| `{sector_attrib}` | Markdown-formatted sector attribution table |
+| `{country_attrib}` | Markdown-formatted country attribution table |
+| `{source_instructions}` | Source guidance text |
+
+---
+
+### `attribution_developer_prompt`
+
+**Type:** `string`
+
+System/developer instructions for attribution overview requests.
+
+---
+
+### `attribution_thinking_level`
+
+**Type:** `"low"` | `"medium"` | `"high"` | `"xhigh"` (or model-specific supported values)
+
+Reasoning effort for attribution overview requests.
+
+---
+
+### `attribution_model`
+
+**Type:** `string`
+
+Model ID used for attribution overview requests.
+
+---
+
+### `attribution_text_verbosity`
+
+**Type:** `"low"` | `"medium"` | `"high"`
+
+Verbosity level for attribution overview responses.
+
+---
+
 ### `preferred_sources`
 
 **Type:** `array of strings`
@@ -165,6 +233,7 @@ Absolute path to the last selected output folder. Used to pre-populate the outpu
   "prompt_template": "Write a single paragraph explaining the recent performance of {security_name} ({ticker}) during the period {period}. Focus on key events, earnings, or market factors that influenced the stock.\n\n{source_instructions}",
   "developer_prompt": "You are a financial analyst assistant. Provide concise, factual commentary suitable for institutional investment reports. Avoid speculation and clearly attribute information to sources when available.",
   "thinking_level": "medium",
+  "model": "gpt-5.2-2025-12-11",
   "text_verbosity": "low",
   "preferred_sources": [
     "reuters.com",
@@ -175,6 +244,14 @@ Absolute path to the last selected output folder. Used to pre-populate the outpu
     "marketwatch.com",
     "seekingalpha.com"
   ],
+  "require_citations": true,
+  "prioritize_sources": true,
+  "run_attribution_overview": false,
+  "attribution_prompt_template": "You are preparing a portfolio-level attribution overview for {portcode} covering period {period}.\n\nSector attribution data:\n{sector_attrib}\n\nCountry attribution data:\n{country_attrib}\n\n{source_instructions}",
+  "attribution_developer_prompt": "Write a concise, factual attribution overview at the portfolio level.",
+  "attribution_thinking_level": "medium",
+  "attribution_model": "gpt-5.2-2025-12-11",
+  "attribution_text_verbosity": "low",
   "output_folder": "/Users/francisthelen/Documents/Commentary"
 }
 ```
@@ -196,10 +273,10 @@ Delete the config file to reset all settings:
 
 ```bash
 # macOS
-rm ~/Library/Application\ Support/Commentary/config.json
+rm ~/.contribnote/config.json
 
 # Windows (PowerShell)
-Remove-Item "$env:APPDATA\Commentary\config.json"
+Remove-Item "$env:APPDATA\ContribNote\config.json"
 ```
 
 ---
@@ -209,16 +286,16 @@ Remove-Item "$env:APPDATA\Commentary\config.json"
 **Note:** The API key is NOT stored in this config file for security reasons.
 
 API keys are stored in the system keychain:
-- **macOS:** Keychain Access → "Commentary" service
-- **Windows:** Credential Manager → "Commentary"
+- **macOS:** Keychain Access → "ContribNote" service
+- **Windows:** Credential Manager → "ContribNote"
 
 To clear a stored API key:
 ```bash
 # macOS
-security delete-generic-password -s "Commentary"
+security delete-generic-password -s "ContribNote"
 
 # Windows (PowerShell)
-cmdkey /delete:Commentary
+cmdkey /delete:ContribNote
 ```
 
 Or use the Settings dialog in the app to clear the key field.

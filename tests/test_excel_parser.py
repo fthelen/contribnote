@@ -6,8 +6,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from src.excel_parser import (
     SecurityRow,
+    AttributionRow,
+    AttributionTable,
     PortfolioData,
     extract_portcode_from_filename,
+    format_attribution_table_markdown,
     parse_excel_file,
     parse_multiple_files,
 )
@@ -182,6 +185,43 @@ class TestParseExcelFile:
         ws.cell = MagicMock(side_effect=cell_side_effect)
         return ws
 
+    def _create_mock_attribution_worksheet(self, headers, rows, outline_levels):
+        """Helper to create a mock attribution worksheet with outline levels."""
+        ws = MagicMock()
+        ws.max_column = len(headers) + 1
+        ws.max_row = max(rows.keys()) if rows else 10
+
+        row_dimensions = {}
+        for row_num in range(1, ws.max_row + 1):
+            dim = MagicMock()
+            dim.outlineLevel = outline_levels.get(row_num, 0)
+            row_dimensions[row_num] = dim
+        ws.row_dimensions = row_dimensions
+
+        def cell_side_effect(row, column):
+            cell = MagicMock()
+            if row == 7:
+                if 2 <= column <= len(headers) + 1:
+                    cell.value = headers[column - 2]
+                else:
+                    cell.value = None
+            elif row in rows:
+                row_values = rows[row]
+                if column == 1:
+                    cell.value = row_values.get("category")
+                else:
+                    idx = column - 2
+                    if 0 <= idx < len(headers):
+                        cell.value = row_values.get(headers[idx])
+                    else:
+                        cell.value = None
+            else:
+                cell.value = None
+            return cell
+
+        ws.cell = MagicMock(side_effect=cell_side_effect)
+        return ws
+
     def test_parse_valid_excel_file(self):
         """Should parse a valid Excel file correctly."""
         headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
@@ -352,6 +392,152 @@ class TestParseExcelFile:
 
         assert len(result.securities) == 1
         assert result.securities[0].security_name == "Apple Inc."
+
+    def test_parse_attribution_sector_top_level_and_total(self):
+        """Should parse only outline level 0 rows and parse total separately."""
+        contrib_headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        contrib_data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+        contrib_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=contrib_headers,
+            data_rows=contrib_data_rows
+        )
+
+        attrib_headers = ["Port. Ending Weight", "Contrib. To Return Difference"]
+        attrib_rows = {
+            8: {"category": "Sector Name"},
+            9: {"category": "Industry name", "Port. Ending Weight": 1.0, "Contrib. To Return Difference": 2.0},
+            10: {"category": "Security Name", "Port. Ending Weight": 3.0, "Contrib. To Return Difference": 4.0},
+            11: {"category": "Information Technology", "Port. Ending Weight": 5.0, "Contrib. To Return Difference": 6.0},
+            12: {"category": "Health Care", "Port. Ending Weight": 7.5, "Contrib. To Return Difference": 8.5},
+            14: {"category": "Total", "Port. Ending Weight": 12.5, "Contrib. To Return Difference": 14.5},
+        }
+        attrib_outlines = {9: 1, 10: 2}
+        attrib_ws = self._create_mock_attribution_worksheet(attrib_headers, attrib_rows, attrib_outlines)
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk", "AttributionbySector"]
+        mock_wb.__getitem__ = MagicMock(
+            side_effect=lambda name: {
+                "ContributionMasterRisk": contrib_ws,
+                "AttributionbySector": attrib_ws,
+            }[name]
+        )
+
+        with patch("src.excel_parser.openpyxl.load_workbook", return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert result.sector_attribution is not None
+        assert result.sector_attribution.category_header == "Sector Name"
+        assert [r.category for r in result.sector_attribution.top_level_rows] == [
+            "Information Technology",
+            "Health Care",
+        ]
+        assert result.sector_attribution.total_row is not None
+        assert result.sector_attribution.total_row.category == "Total"
+        assert any("Missing optional attribution tab 'AttributionbyCountryMasterRisk'" in w for w in result.attribution_warnings)
+
+    def test_parse_attribution_missing_sector_warns(self):
+        """Should warn when expected sector attribution tab is missing."""
+        headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+
+        mock_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=headers,
+            data_rows=data_rows
+        )
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk"]
+        mock_wb.__getitem__ = MagicMock(return_value=mock_ws)
+
+        with patch("src.excel_parser.openpyxl.load_workbook", return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert result.sector_attribution is None
+        assert any("Missing expected attribution tab 'AttributionbySector'" in w for w in result.attribution_warnings)
+
+    def test_parse_attribution_missing_total_warns(self):
+        """Should warn when attribution tab has no Total row."""
+        contrib_headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        contrib_data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+        contrib_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=contrib_headers,
+            data_rows=contrib_data_rows
+        )
+
+        attrib_headers = ["Port. Ending Weight"]
+        attrib_rows = {
+            8: {"category": "Sector Name"},
+            9: {"category": "Information Technology", "Port. Ending Weight": 5.0},
+        }
+        attrib_ws = self._create_mock_attribution_worksheet(attrib_headers, attrib_rows, {})
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk", "AttributionbySector"]
+        mock_wb.__getitem__ = MagicMock(
+            side_effect=lambda name: {
+                "ContributionMasterRisk": contrib_ws,
+                "AttributionbySector": attrib_ws,
+            }[name]
+        )
+
+        with patch("src.excel_parser.openpyxl.load_workbook", return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert result.sector_attribution is not None
+        assert result.sector_attribution.total_row is None
+        assert any("Total row not found" in w for w in result.attribution_warnings)
+
+
+class TestAttributionMarkdownFormatting:
+    """Tests for markdown formatting of attribution prompt inputs."""
+
+    def test_format_attribution_table_markdown(self):
+        table = AttributionTable(
+            sheet_name="AttributionbySector",
+            category_header="Sector Name",
+            metric_headers=["Port. Ending Weight", "Contrib. To Return Difference"],
+            top_level_rows=[
+                AttributionRow(
+                    category="Information Technology",
+                    metrics={
+                        "Port. Ending Weight": 5.0,
+                        "Contrib. To Return Difference": 1.25,
+                    },
+                ),
+            ],
+            total_row=AttributionRow(
+                category="Total",
+                metrics={
+                    "Port. Ending Weight": 25.0,
+                    "Contrib. To Return Difference": 2.0,
+                },
+            ),
+        )
+
+        markdown = format_attribution_table_markdown(table, empty_message="No data")
+
+        assert "### AttributionbySector" in markdown
+        assert "| Sector Name | Port. Ending Weight | Contrib. To Return Difference |" in markdown
+        assert "| Information Technology | 5 | 1.25 |" in markdown
+        assert "Total:" in markdown
+        assert "| Total | 25 | 2 |" in markdown
+
+    def test_format_attribution_table_markdown_empty(self):
+        markdown = format_attribution_table_markdown(None, empty_message="No country data")
+        assert markdown == "No country data"
 
 
 # --- parse_multiple_files Tests ---
