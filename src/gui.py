@@ -1400,7 +1400,11 @@ class CommentaryGeneratorApp:
         valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
         if errors:
             self._refresh_global_source_errors()
-            messagebox.showerror("Error", "Please fix invalid preferred source domains before running.")
+            messagebox.showerror(
+                "Error",
+                "Please fix invalid preferred source domains before running.",
+                parent=self.root,
+            )
             return False
 
         self.sources_var.set(", ".join(valid_domains))
