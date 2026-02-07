@@ -19,12 +19,30 @@ from typing import Optional
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.excel_parser import parse_multiple_files, PortfolioData
-from src.selection_engine import (
-    SelectionMode, process_portfolios, SelectionResult
+from src.excel_parser import (
+    parse_multiple_files,
+    format_attribution_table_markdown,
 )
-from src.prompt_manager import PromptManager, PromptConfig, get_default_preferred_sources, DEFAULT_PROMPT_TEMPLATE, SOURCE_INSTRUCTIONS_DEFAULT
-from src.openai_client import OpenAIClient, CommentaryResult, RateLimitConfig, DEFAULT_DEVELOPER_PROMPT
+from src.selection_engine import (
+    SelectionMode, process_portfolios
+)
+from src.prompt_manager import (
+    PromptManager,
+    PromptConfig,
+    AttributionPromptManager,
+    AttributionPromptConfig,
+    get_default_preferred_sources,
+    DEFAULT_PROMPT_TEMPLATE,
+    SOURCE_INSTRUCTIONS_DEFAULT,
+    DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE,
+    DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT,
+)
+from src.openai_client import (
+    OpenAIClient,
+    CommentaryResult,
+    AttributionOverviewResult,
+    DEFAULT_DEVELOPER_PROMPT,
+)
 from src.output_generator import create_output_workbook, create_log_file
 from src.ui_styles import Spacing, Typography, Dimensions
 from src import keystore
@@ -589,6 +607,218 @@ class PromptEditorModal:
         self.window.destroy()
 
 
+class AttributionWorkflowModal:
+    """Modal window for attribution workflow prompt and model configuration."""
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        current_prompt: str,
+        current_developer_prompt: str,
+        current_thinking_level: str,
+        current_model: str,
+        available_models: list[str],
+        current_text_verbosity: str,
+    ):
+        self.result = None
+
+        self.window = tk.Toplevel(parent)
+        self.window.title("Attribution Workflow")
+        self.window.transient(parent)
+        self.window.grab_set()
+
+        self._center_on_parent(parent, Dimensions.ATTRIBUTION_EDITOR_WIDTH, Dimensions.ATTRIBUTION_EDITOR_HEIGHT)
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(0, weight=1)
+
+        main_frame = ttk.Frame(self.window, padding=Spacing.FRAME_PADDING)
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+
+        level_frame = ttk.LabelFrame(main_frame, text="Reasoning & Verbosity", padding=Spacing.FRAME_PADDING)
+        level_frame.grid(row=0, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
+        level_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(level_frame, text="Reasoning effort:").grid(row=0, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP))
+        self.thinking_var = tk.StringVar(value=current_thinking_level)
+        self.thinking_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.thinking_var,
+            values=[],
+            state="readonly",
+            width=12
+        )
+        self.thinking_combo.grid(row=0, column=1, sticky="w")
+
+        ttk.Label(level_frame, text="Model:").grid(
+            row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0)
+        )
+        model_value = current_model if current_model in available_models else DEFAULT_MODEL
+        self.model_var = tk.StringVar(value=model_value)
+        model_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.model_var,
+            values=available_models,
+            state="readonly",
+            width=28
+        )
+        model_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_reasoning_levels())
+
+        ttk.Label(level_frame, text="Text verbosity:").grid(
+            row=2, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0)
+        )
+        self.text_verbosity_var = tk.StringVar(value=current_text_verbosity)
+        verbosity_combo = ttk.Combobox(
+            level_frame,
+            textvariable=self.text_verbosity_var,
+            values=["low", "medium", "high"],
+            state="readonly",
+            width=12
+        )
+        verbosity_combo.grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        self.reasoning_help_label = ttk.Label(
+            level_frame,
+            text="",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        )
+        self.reasoning_help_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        self._update_reasoning_levels()
+
+        ttk.Label(
+            level_frame,
+            text="Verbosity controls response length and detail.",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        prompt_frame = ttk.LabelFrame(main_frame, text="Attribution Prompts", padding=Spacing.FRAME_PADDING)
+        prompt_frame.grid(row=1, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
+        prompt_frame.columnconfigure(0, weight=1)
+        prompt_frame.rowconfigure(0, weight=1)
+
+        notebook = ttk.Notebook(prompt_frame)
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        user_tab = ttk.Frame(notebook)
+        notebook.add(user_tab, text="User Prompt (Template)")
+        user_tab.columnconfigure(0, weight=1)
+        user_tab.rowconfigure(0, weight=1)
+
+        self.prompt_text = scrolledtext.ScrolledText(user_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
+        self.prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
+        self.prompt_text.insert("1.0", current_prompt)
+
+        ttk.Label(
+            user_tab,
+            text="Variables: {portcode}, {period}, {sector_attrib}, {country_attrib}, {source_instructions}",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+
+        dev_tab = ttk.Frame(notebook)
+        notebook.add(dev_tab, text="System Prompt (Instructions)")
+        dev_tab.columnconfigure(0, weight=1)
+        dev_tab.rowconfigure(0, weight=1)
+
+        self.dev_prompt_text = scrolledtext.ScrolledText(dev_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
+        self.dev_prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
+        self.dev_prompt_text.insert("1.0", current_developer_prompt)
+
+        ttk.Label(
+            dev_tab,
+            text="System prompt controls attribution overview behavior and tone.",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=2, column=0, sticky="ew")
+        btn_frame.columnconfigure(0, weight=1)
+
+        reset_frame = ttk.Frame(btn_frame)
+        reset_frame.grid(row=0, column=0, sticky="w")
+        ttk.Button(reset_frame, text="Reset User Prompt", command=self.reset_user_prompt).pack(
+            side="left", padx=(0, Spacing.BUTTON_PAD)
+        )
+        ttk.Button(reset_frame, text="Reset System Prompt", command=self.reset_system_prompt).pack(side="left")
+
+        action_frame = ttk.Frame(btn_frame)
+        action_frame.grid(row=0, column=1, sticky="e")
+        ttk.Button(action_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
+        ttk.Button(action_frame, text="Save", command=self.on_save).pack(side="left")
+
+        self.window.focus()
+
+    def _center_on_parent(self, parent: tk.Tk, width: int, height: int):
+        """Center the modal window on its parent."""
+        parent.update_idletasks()
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+
+        x = parent_x + (parent_width - width) // 2
+        y = parent_y + (parent_height - height) // 2
+        x = max(0, x)
+        y = max(0, y)
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _build_reasoning_help_text(self, levels: list[str]) -> str:
+        parts = []
+        if "none" in levels:
+            parts.append("none: No reasoning")
+        if "low" in levels:
+            parts.append("low: Fastest")
+        if "medium" in levels:
+            parts.append("medium: Balanced")
+        if "high" in levels:
+            parts.append("high: Thorough")
+        if "xhigh" in levels:
+            parts.append("xhigh: Most thorough")
+        return " | ".join(parts)
+
+    def _update_reasoning_levels(self) -> None:
+        model_id = self.model_var.get()
+        levels = get_reasoning_levels_for_model(model_id)
+        self.thinking_combo["values"] = levels
+
+        if self.thinking_var.get() not in levels:
+            default_level = "none" if "none" in levels else "medium"
+            self.thinking_var.set(default_level)
+
+        self.reasoning_help_label.configure(text=self._build_reasoning_help_text(levels))
+
+    def reset_user_prompt(self):
+        """Reset attribution user prompt to default template."""
+        self.prompt_text.delete("1.0", tk.END)
+        self.prompt_text.insert("1.0", DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE)
+
+    def reset_system_prompt(self):
+        """Reset attribution system prompt to default."""
+        self.dev_prompt_text.delete("1.0", tk.END)
+        self.dev_prompt_text.insert("1.0", DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT)
+
+    def on_cancel(self):
+        """Discard changes."""
+        self.result = None
+        self.window.destroy()
+
+    def on_save(self):
+        """Apply changes."""
+        self.result = {
+            "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
+            "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
+            "thinking_level": self.thinking_var.get(),
+            "model": self.model_var.get(),
+            "text_verbosity": self.text_verbosity_var.get(),
+        }
+        self.window.destroy()
+
+
 class CommentaryGeneratorApp:
     """Main GUI application for the commentary generator."""
 
@@ -618,6 +848,12 @@ class CommentaryGeneratorApp:
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
         self.developer_prompt_content: str = DEFAULT_DEVELOPER_PROMPT
+        self.run_attribution_overview: bool = False
+        self.attribution_prompt_text_content: str = DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE
+        self.attribution_developer_prompt_content: str = DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT
+        self.attribution_thinking_level: str = "medium"
+        self.attribution_text_verbosity: str = "low"
+        self.attribution_model_id: str = DEFAULT_MODEL
         
         # Citation and source settings
         self.require_citations: bool = True  # Default: require citations
@@ -693,6 +929,28 @@ class CommentaryGeneratorApp:
                 self.model_id = config["model"]
             else:
                 self.model_id = DEFAULT_MODEL
+
+            if "run_attribution_overview" in config:
+                self.run_attribution_overview = bool(config["run_attribution_overview"])
+                if hasattr(self, "run_attribution_var"):
+                    self.run_attribution_var.set(self.run_attribution_overview)
+
+            if "attribution_prompt_template" in config:
+                self.attribution_prompt_text_content = config["attribution_prompt_template"]
+
+            if "attribution_developer_prompt" in config:
+                self.attribution_developer_prompt_content = config["attribution_developer_prompt"]
+
+            if "attribution_thinking_level" in config:
+                self.attribution_thinking_level = config["attribution_thinking_level"]
+
+            if "attribution_text_verbosity" in config:
+                self.attribution_text_verbosity = config["attribution_text_verbosity"]
+
+            if "attribution_model" in config and config["attribution_model"] in AVAILABLE_MODELS:
+                self.attribution_model_id = config["attribution_model"]
+            else:
+                self.attribution_model_id = DEFAULT_MODEL
             
             # Load preferred sources
             if "preferred_sources" in config:
@@ -732,6 +990,12 @@ class CommentaryGeneratorApp:
                 "preferred_sources": [s.strip() for s in self.sources_var.get().split(",") if s.strip()],
                 "require_citations": self.require_citations,
                 "prioritize_sources": self.prioritize_sources,
+                "run_attribution_overview": self.run_attribution_overview,
+                "attribution_prompt_template": self.attribution_prompt_text_content,
+                "attribution_developer_prompt": self.attribution_developer_prompt_content,
+                "attribution_thinking_level": self.attribution_thinking_level,
+                "attribution_text_verbosity": self.attribution_text_verbosity,
+                "attribution_model": self.attribution_model_id,
                 "output_folder": str(self.output_folder) if self.output_folder else ""
             }
             
@@ -811,6 +1075,17 @@ class CommentaryGeneratorApp:
                                          values=["5", "10"], state="readonly", width=10)
         self.count_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
 
+        # Attribution overview workflow toggle
+        ttk.Label(options_frame, text="Attribution Overview:").grid(
+            row=2, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP, 0)
+        )
+        self.run_attribution_var = tk.BooleanVar(value=self.run_attribution_overview)
+        ttk.Checkbutton(
+            options_frame,
+            text="Run Attribution Overview",
+            variable=self.run_attribution_var
+        ).grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+
         current_row += 1
 
         # ====== Configuration Section (merged API Settings + Prompts & Sources) ======
@@ -818,6 +1093,7 @@ class CommentaryGeneratorApp:
         config_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
         config_frame.columnconfigure(0, weight=1)
         config_frame.columnconfigure(1, weight=1)
+        config_frame.columnconfigure(2, weight=1)
 
         # API Settings button with description
         api_container = ttk.Frame(config_frame)
@@ -832,6 +1108,21 @@ class CommentaryGeneratorApp:
         ttk.Button(prompts_container, text="Prompts & Sources", command=self.open_prompt_editor).pack(anchor="w")
         ttk.Label(prompts_container, text="Edit prompts, sources, reasoning, and verbosity",
                   font=Typography.HELP_FONT, foreground=Typography.HELP_COLOR).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        # Attribution workflow button with description
+        attribution_container = ttk.Frame(config_frame)
+        attribution_container.grid(row=0, column=2, sticky="w")
+        ttk.Button(
+            attribution_container,
+            text="Attribution Workflow",
+            command=self.open_attribution_workflow_editor
+        ).pack(anchor="w")
+        ttk.Label(
+            attribution_container,
+            text="Edit separate attribution prompt and model settings",
+            font=Typography.HELP_FONT,
+            foreground=Typography.HELP_COLOR
+        ).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
 
         current_row += 1
 
@@ -949,6 +1240,26 @@ class CommentaryGeneratorApp:
             self.text_verbosity = modal.result["text_verbosity"]
             self.sources_var.set(modal.result["preferred_sources"])
             self.prioritize_sources = modal.result["prioritize_sources"]
+
+    def open_attribution_workflow_editor(self):
+        """Open the attribution workflow modal window."""
+        modal = AttributionWorkflowModal(
+            self.root,
+            self.attribution_prompt_text_content,
+            self.attribution_developer_prompt_content,
+            self.attribution_thinking_level,
+            self.attribution_model_id,
+            AVAILABLE_MODELS,
+            self.attribution_text_verbosity,
+        )
+        self.root.wait_window(modal.window)
+
+        if modal.result:
+            self.attribution_prompt_text_content = modal.result["prompt_template"]
+            self.attribution_developer_prompt_content = modal.result["developer_prompt"]
+            self.attribution_thinking_level = modal.result["thinking_level"]
+            self.attribution_model_id = modal.result["model"]
+            self.attribution_text_verbosity = modal.result["text_verbosity"]
     
     def open_settings(self):
         """Open the settings modal window."""
@@ -1039,6 +1350,8 @@ class CommentaryGeneratorApp:
         
         if not self.validate_inputs():
             return
+
+        self.run_attribution_overview = self.run_attribution_var.get()
         
         self.is_running = True
         self._cancel_requested = False
@@ -1082,12 +1395,21 @@ class CommentaryGeneratorApp:
         """Async generation logic."""
         start_time = datetime.now()
         errors: dict[str, list[str]] = {}
+        attribution_overview_results: Optional[dict[str, AttributionOverviewResult]] = None
         
         # Update status
         self.root.after(0, lambda: self.status_var.set("Parsing Excel files..."))
         
         # Parse input files
         portfolios = parse_multiple_files(self.input_files)
+
+        if self.run_attribution_overview:
+            # Record parser-level attribution warnings in the run log only when the
+            # attribution workflow is enabled for this run.
+            for portfolio in portfolios:
+                for warning in portfolio.attribution_warnings:
+                    key = f"{portfolio.portcode}|ATTRIBUTION_PARSER"
+                    errors.setdefault(key, []).append(warning)
         
         # Determine selection mode
         mode = SelectionMode.TOP_BOTTOM if self.mode_var.get() == "top_bottom" else SelectionMode.ALL_HOLDINGS
@@ -1106,8 +1428,8 @@ class CommentaryGeneratorApp:
         )
         prompt_manager = PromptManager(prompt_config)
         
-        # Set up OpenAI client
-        client = OpenAIClient(
+        # Set up OpenAI client for security-level commentary
+        commentary_client = OpenAIClient(
             api_key=self.api_key.strip(),
             progress_callback=self.update_progress,
             developer_prompt=self.developer_prompt_content,
@@ -1138,7 +1460,7 @@ class CommentaryGeneratorApp:
         self.root.after(0, lambda: self.status_var.set(f"Generating commentary for {total} securities..."))
         
         # Generate commentary (batch)
-        results = await client.generate_commentary_batch(
+        results = await commentary_client.generate_commentary_batch(
             all_requests,
             use_web_search=True,
             thinking_level=self.thinking_level,
@@ -1164,6 +1486,95 @@ class CommentaryGeneratorApp:
                 if key not in errors:
                     errors[key] = []
                 errors[key].append(result.error_message)
+
+        if self.run_attribution_overview:
+            attribution_overview_results = {}
+            self.root.after(0, lambda: self.status_var.set("Generating attribution overviews..."))
+
+            attribution_prompt_config = AttributionPromptConfig(
+                template=self.attribution_prompt_text_content,
+                preferred_sources=sources,
+                thinking_level=self.attribution_thinking_level,
+                prioritize_sources=self.prioritize_sources,
+            )
+            attribution_prompt_manager = AttributionPromptManager(attribution_prompt_config)
+
+            attribution_requests: list[dict[str, str]] = []
+
+            for portfolio in portfolios:
+                has_sector_data = (
+                    portfolio.sector_attribution is not None
+                    and portfolio.sector_attribution.has_data()
+                )
+                has_country_data = (
+                    portfolio.country_attribution is not None
+                    and portfolio.country_attribution.has_data()
+                )
+
+                if not has_sector_data and not has_country_data:
+                    warning_message = (
+                        "WARNING: Attribution overview skipped because no sector "
+                        "or country attribution data was found."
+                    )
+                    attribution_overview_results[portfolio.portcode] = AttributionOverviewResult(
+                        portcode=portfolio.portcode,
+                        output="",
+                        citations=[],
+                        success=False,
+                        error_message=warning_message,
+                    )
+                    errors.setdefault(f"{portfolio.portcode}|ATTRIBUTION_OVERVIEW", []).append(
+                        warning_message
+                    )
+                    continue
+
+                sector_attrib_markdown = format_attribution_table_markdown(
+                    portfolio.sector_attribution,
+                    empty_message="No sector attribution data available.",
+                )
+                country_attrib_markdown = format_attribution_table_markdown(
+                    portfolio.country_attribution,
+                    empty_message="No country attribution data available.",
+                )
+                attribution_prompt = attribution_prompt_manager.build_prompt(
+                    portcode=portfolio.portcode,
+                    period=portfolio.period,
+                    sector_attrib=sector_attrib_markdown,
+                    country_attrib=country_attrib_markdown,
+                )
+                attribution_requests.append(
+                    {
+                        "portcode": portfolio.portcode,
+                        "prompt": attribution_prompt,
+                    }
+                )
+
+            if attribution_requests:
+                attribution_client = OpenAIClient(
+                    api_key=self.api_key.strip(),
+                    progress_callback=self.update_progress,
+                    developer_prompt=self.attribution_developer_prompt_content,
+                    model=self.attribution_model_id,
+                )
+                attribution_results = await attribution_client.generate_attribution_overview_batch(
+                    attribution_requests,
+                    use_web_search=True,
+                    thinking_level=self.attribution_thinking_level,
+                    text_verbosity=self.attribution_text_verbosity,
+                    require_citations=self.require_citations,
+                    cancel_event=self._cancel_event,
+                )
+
+                if self._cancel_event and self._cancel_event.is_set():
+                    raise asyncio.CancelledError()
+
+                for overview_result in attribution_results:
+                    attribution_overview_results[overview_result.portcode] = overview_result
+                    if not overview_result.success:
+                        errors.setdefault(
+                            f"{overview_result.portcode}|ATTRIBUTION_OVERVIEW",
+                            []
+                        ).append(overview_result.error_message)
         
         # Update status
         self.root.after(0, lambda: self.status_var.set("Creating output workbook..."))
@@ -1173,7 +1584,8 @@ class CommentaryGeneratorApp:
         output_path = create_output_workbook(
             selections,
             commentary_results,
-            self.output_folder
+            self.output_folder,
+            attribution_overview_results=attribution_overview_results
         )
         
         # Create log file

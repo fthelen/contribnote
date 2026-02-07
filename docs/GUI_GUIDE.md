@@ -39,12 +39,19 @@ Choose how many securities to process per portfolio:
 | **Top/Bottom 10** | 10 top contributors + 10 top detractors (up to 20 total) |
 | **All Holdings** | Every security in the portfolio (excluding cash/fees) |
 
-#### 5. Action Buttons
+#### 5. Attribution Overview
+`Run Attribution Overview` enables an optional portfolio-level workflow that:
+- Parses attribution tabs (`AttributionbySector`, optional `AttributionbyCountryMasterRisk`)
+- Runs a separate attribution prompt/model configuration
+- Writes one `overview` row above the security-level table
+
+#### 6. Action Buttons
 - **Settings** — Opens API key configuration modal
 - **Prompts & Sources** — Opens prompt editor and source configuration
+- **Attribution Workflow** — Opens separate attribution prompt/model settings
 - **Generate Commentary** — Starts the commentary generation process
 
-#### 6. Progress Area
+#### 7. Progress Area
 During generation:
 - Progress bar shows overall completion
 - Status text shows current operation (e.g., "Processing AAPL...")
@@ -165,7 +172,9 @@ A list of trusted financial news domains. The AI prioritizes these when searchin
 2. Add one or more input files
 3. Select output folder
 4. Choose holdings mode
-5. Click **Generate Commentary**
+5. Optionally enable **Run Attribution Overview**
+6. Optionally configure **Attribution Workflow**
+7. Click **Generate Commentary**
 
 ### During Generation
 
@@ -177,6 +186,8 @@ The status area shows:
 - **Current file**: Which portfolio is being processed
 - **Current security**: Which ticker is being analyzed
 - **Elapsed time**: How long the run has taken
+
+When attribution workflow is enabled, progress also includes one overview request per portfolio.
 
 ### Completion
 
@@ -202,6 +213,12 @@ On partial failure:
 **Filename:** `ContributorDetractorCommentary_YYYY-MM-DD_HHMM.xlsx`
 
 **Structure:** One sheet per portfolio (sheet name = PORTCODE)
+
+When attribution workflow is enabled, each sheet starts with:
+- Row 1: `Category | Output | Sources`
+- Row 2: `overview | <overview text or warning> | <sources>`
+- Row 3: blank separator row
+- Row 4+: existing security-level table
 
 **Columns:**
 | Column | Description |

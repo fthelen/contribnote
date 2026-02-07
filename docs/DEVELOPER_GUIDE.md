@@ -103,10 +103,12 @@ Parses FactSet Excel exports with strict layout assumptions.
 **Key Classes:**
 - `SecurityRow` — Dataclass for a single security's data
 - `PortfolioData` — Container for portfolio metadata and securities
+- `AttributionRow` / `AttributionTable` — Top-level attribution rows and totals for sector/country tabs
 
 **Key Functions:**
 - `parse_factset_file(path)` → `PortfolioData`
 - `extract_portcode(filename)` → `str`
+- `format_attribution_table_markdown(table, empty_message)` → `str` for prompt injection
 
 **Layout Constants:**
 ```python
@@ -151,12 +153,17 @@ Manages prompt templates with variable interpolation.
 - `set_preferred_sources(sources)` → `None`
 - `get_default_preferred_sources()` → `list[str]`
 
+**Attribution Workflow Prompting:**
+- `AttributionPromptConfig` — Separate config for attribution workflow
+- `AttributionPromptManager.build_prompt(portcode, period, sector_attrib, country_attrib, ...)`
+
 ### `openai_client.py`
 
 Async OpenAI Responses API client with full feature set.
 
 **Key Classes:**
 - `CommentaryResult` — Response container with commentary and citations
+- `AttributionOverviewResult` — Portfolio-level attribution overview output + citations
 - `OpenAIClient` — Main client class
 
 **Key Features:**
@@ -175,6 +182,8 @@ Async OpenAI Responses API client with full feature set.
 **Key Methods:**
 - `generate_commentary(ticker, security_name, prompt, ...)` → `CommentaryResult`
 - `generate_commentary_batch(requests, ...)` → `list[CommentaryResult]`
+- `generate_attribution_overview(portcode, prompt, ...)` → `AttributionOverviewResult`
+- `generate_attribution_overview_batch(requests, ...)` → `list[AttributionOverviewResult]`
 
 ### `output_generator.py`
 
@@ -211,6 +220,7 @@ Full tkinter GUI implementation.
 - `CommentaryGeneratorApp` — Main application window
 - `SettingsModal` — API key configuration and citations dialog
 - `PromptEditorModal` — Prompt editor with tabs
+- `AttributionWorkflowModal` — Separate attribution prompt/model editor
 
 **Config Persistence:**
 - Location: `~/.contribnote/config.json` (macOS/Linux) or `%APPDATA%/ContribNote/config.json` (Windows)
@@ -251,6 +261,7 @@ python -m pytest tests/ -v --tb=short
 | `selection_engine.py` | `test_selection_engine.py` | Ranking logic, top/bottom, all holdings |
 | `prompt_manager.py` | `test_prompt_manager.py` | Template interpolation, config |
 | `output_generator.py` | `test_output_generator.py` | Excel output, log files, result merging |
+| `gui.py` (config) | `test_gui_config.py` | Config load/save keys including attribution workflow |
 
 ### Sample Files
 

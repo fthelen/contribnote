@@ -42,15 +42,18 @@ python run_app.py
 4. **Configure settings**:
    - **Holdings Mode**: Select "Top/Bottom N" or "All Holdings"
    - **Top/Bottom Count**: Choose 5 or 10 (only for Top/Bottom mode)
+   - **Run Attribution Overview**: Optional portfolio-level overview workflow
    - **Require Citations**: Check to require source citations
    - **Preferred Sources**: Edit the list of preferred financial news domains
 5. **Customize prompt** (optional): Edit the prompt template if needed
-6. **Click "Generate Commentary"** to start
+6. **Configure Attribution Workflow** (optional): Use the dedicated button to set a separate attribution prompt/model
+7. **Click "Generate Commentary"** to start
 
 ## Output
 
 The application generates:
 - **Excel workbook**: One sheet per portfolio with commentary and sources
+- **Optional overview row**: When enabled, a portfolio-level `overview` row appears above the security table
 - **Log file**: Details of the run including any errors (in `<output_folder>/log/`)
 
 ## Advanced Features
@@ -82,13 +85,31 @@ The application supports two types of prompts:
 
 Both are editable in the **Prompts & Sources** modal.
 
+### Attribution Workflow (Optional)
+
+When **Run Attribution Overview** is enabled, the app runs a separate portfolio-level prompt before writing output.
+
+- Uses attribution tabs from the same input workbook:
+  - `AttributionbySector` (expected)
+  - `AttributionbyCountryMasterRisk` (optional)
+- Uses separate prompt/model/reasoning/verbosity settings in the **Attribution Workflow** modal
+- Injects parsed top-level attribution data into attribution prompt variables:
+  - `{sector_attrib}`
+  - `{country_attrib}`
+- Writes one `overview` row above the security-level table in each portfolio sheet.
+
 ### Configuration Persistence
 
 Your settings are automatically saved after each successful run:
 - **macOS/Linux**: `~/.contribnote/config.json`
 - **Windows**: `%APPDATA%\ContribNote\config.json`
 
-Saved settings include: prompts, thinking level, preferred sources, and last output folder.
+Saved settings include:
+- contribution prompts/settings
+- attribution workflow prompts/settings
+- run-attribution toggle
+- preferred sources
+- last output folder
 
 ## Input File Requirements
 
@@ -98,6 +119,12 @@ FactSet Excel files must have:
 - Data starting in row 10
 - Period string in row 6
 - Filename pattern: `PORTCODE_*_MMDDYYYY.xlsx` (PORTCODE extracted from text before first underscore)
+
+Optional attribution sheets for overview workflow:
+- `AttributionbySector` (expected for attribution workflow)
+- `AttributionbyCountryMasterRisk` (optional)
+
+Attribution parsing keeps only top-level grouped rows (outline level 0) plus the `Total` row.
 
 ## Documentation
 

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from src.openai_client import OpenAIClient, CommentaryResult
+from src.openai_client import OpenAIClient, CommentaryResult, AttributionOverviewResult
 
 
 def test_make_request_respects_cancel_event_before_post():
@@ -83,6 +83,107 @@ def test_generate_commentary_batch_raises_cancelled_error_when_cancelled(monkeyp
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(_run())
+
+
+def test_generate_attribution_overview_batch_raises_cancelled_error_when_cancelled(monkeypatch):
+    client = OpenAIClient(api_key="test-key")
+    cancel_event = asyncio.Event()
+
+    async def _fake_generate_attribution_overview(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return AttributionOverviewResult(
+            portcode="P1",
+            output="overview",
+            citations=[],
+            success=True,
+        )
+
+    monkeypatch.setattr(client, "generate_attribution_overview", _fake_generate_attribution_overview)
+
+    requests = [
+        {"portcode": "P1", "prompt": "p1"},
+        {"portcode": "P2", "prompt": "p2"},
+    ]
+
+    async def _run():
+        async def _trigger_cancel():
+            await asyncio.sleep(0.01)
+            cancel_event.set()
+
+        asyncio.create_task(_trigger_cancel())
+        await client.generate_attribution_overview_batch(
+            requests,
+            use_web_search=False,
+            cancel_event=cancel_event,
+        )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(_run())
+
+
+def test_generate_attribution_overview_requires_citations(monkeypatch):
+    client = OpenAIClient(api_key="test-key")
+
+    async def _fake_make_request(*_args, **_kwargs):
+        return {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Attribution summary without citations.",
+                            "annotations": [],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(client, "_make_request", _fake_make_request)
+
+    async def _run():
+        return await client.generate_attribution_overview(
+            portcode="PORT1",
+            prompt="test prompt",
+            use_web_search=False,
+            require_citations=True,
+        )
+
+    result = asyncio.run(_run())
+    assert result.success is False
+    assert "No citations found" in result.error_message
+
+
+def test_generate_attribution_overview_batch_maps_results_by_portcode(monkeypatch):
+    client = OpenAIClient(api_key="test-key")
+
+    async def _fake_generate_attribution_overview(*_args, **kwargs):
+        return AttributionOverviewResult(
+            portcode=kwargs["portcode"],
+            output=f"overview-{kwargs['portcode']}",
+            citations=[],
+            success=True,
+        )
+
+    monkeypatch.setattr(client, "generate_attribution_overview", _fake_generate_attribution_overview)
+
+    requests = [
+        {"portcode": "PORT1", "prompt": "p1"},
+        {"portcode": "PORT2", "prompt": "p2"},
+    ]
+
+    async def _run():
+        return await client.generate_attribution_overview_batch(
+            requests,
+            use_web_search=False,
+            require_citations=False,
+        )
+
+    results = asyncio.run(_run())
+    assert [r.portcode for r in results] == ["PORT1", "PORT2"]
+    assert results[0].output == "overview-PORT1"
+    assert results[1].output == "overview-PORT2"
 
 
 def test_reasoning_levels_for_model():
