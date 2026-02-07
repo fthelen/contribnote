@@ -133,6 +133,7 @@ Attribution prompt injection uses one markdown table per sheet with `Total` as t
 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Architecture, module reference, contributing |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Config file schema and options |
 | [docs/GUI_GUIDE.md](docs/GUI_GUIDE.md) | User interface walkthrough |
+| [docs/BUILD_ONEFILE.md](docs/BUILD_ONEFILE.md) | Build unsigned onefile macOS/Windows artifacts |
 | [Process_Outline.md](Process_Outline.md) | Full workflow specification |
 | [agents.md](agents.md) | AI coding agent quick reference |
 
