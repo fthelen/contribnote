@@ -215,6 +215,93 @@ def test_normalize_thinking_level():
     assert client._normalize_thinking_level("gpt-5-nano-2025-08-07", "xhigh") == "medium"
 
 
+def test_parse_response_aggregates_multiple_output_text_blocks():
+    client = OpenAIClient(api_key="test-key")
+    response = {
+        "id": "resp_123",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "First paragraph.",
+                        "annotations": [],
+                    },
+                    {
+                        "type": "output_text",
+                        "text": "Second paragraph with source.",
+                        "annotations": [
+                            {
+                                "type": "url_citation",
+                                "url": "https://example.com/news",
+                                "title": "Example",
+                                "start_index": 0,
+                            }
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    parsed = client._parse_response(response, ticker="AAA", security_name="Test Co")
+    assert parsed.success is True
+    assert "First paragraph." in parsed.commentary
+    assert "Second paragraph with source." in parsed.commentary
+    assert len(parsed.citations) == 1
+    assert parsed.citations[0].url == "https://example.com/news"
+
+
+def test_parse_response_falls_back_to_top_level_output_text():
+    client = OpenAIClient(api_key="test-key")
+    response = {
+        "id": "resp_456",
+        "status": "completed",
+        "output": [],
+        "output_text": "Top-level fallback text.",
+    }
+
+    parsed = client._parse_response(response, ticker="BBB", security_name="Test Co 2")
+    assert parsed.success is True
+    assert parsed.commentary == "Top-level fallback text."
+
+
+def test_generate_commentary_batch_ignores_progress_callback_errors(monkeypatch):
+    def _bad_callback(_ticker, _completed, _total):
+        raise RuntimeError("ui callback failed")
+
+    client = OpenAIClient(api_key="test-key", progress_callback=_bad_callback)
+
+    async def _fake_generate_commentary(**kwargs):
+        return CommentaryResult(
+            ticker=kwargs["ticker"],
+            security_name=kwargs["security_name"],
+            commentary="ok",
+            citations=[],
+            success=True,
+        )
+
+    monkeypatch.setattr(client, "generate_commentary", _fake_generate_commentary)
+
+    requests = [
+        {"ticker": "AAA", "security_name": "A Co", "prompt": "p", "portcode": "P1"},
+        {"ticker": "BBB", "security_name": "B Co", "prompt": "p", "portcode": "P1"},
+    ]
+
+    async def _run():
+        return await client.generate_commentary_batch(
+            requests,
+            use_web_search=False,
+            require_citations=False,
+        )
+
+    results = asyncio.run(_run())
+    assert len(results) == 2
+    assert all(result.success for result in results)
+
+
 class DummyAsyncClient:
     def __init__(self, post=None, get=None):
         self._post = post

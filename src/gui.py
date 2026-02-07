@@ -7,6 +7,7 @@ Simple tkinter-based GUI for non-technical users.
 import asyncio
 import json
 import os
+import queue
 import re
 import sys
 import threading
@@ -844,6 +845,7 @@ class CommentaryGeneratorApp:
         self._cancel_event: Optional[asyncio.Event] = None
         self._cancel_requested: bool = False
         self._exit_after_cancel: bool = False
+        self._progress_queue: queue.SimpleQueue[tuple[str, int, int]] = queue.SimpleQueue()
 
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
@@ -867,6 +869,7 @@ class CommentaryGeneratorApp:
         self.setup_ui()
         self.load_api_key()
         self.load_config()
+        self._schedule_progress_queue_drain()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_exit_requested)
 
@@ -1319,12 +1322,25 @@ class CommentaryGeneratorApp:
                 )
     
     def update_progress(self, ticker: str, completed: int, total: int):
-        """Update progress bar (called from async thread)."""
-        def update():
+        """Enqueue progress updates from worker threads."""
+        self._progress_queue.put((ticker, completed, total))
+
+    def _schedule_progress_queue_drain(self) -> None:
+        """Drain queued progress updates on the Tk main thread."""
+        latest: Optional[tuple[str, int, int]] = None
+        while True:
+            try:
+                latest = self._progress_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        if latest:
+            ticker, completed, total = latest
             progress = (completed / total) * 100 if total > 0 else 0
             self.progress_var.set(progress)
             self.status_var.set(f"Processing: {ticker} ({completed}/{total})")
-        self.root.after(0, update)
+
+        self.root.after(100, self._schedule_progress_queue_drain)
     
     def validate_inputs(self) -> bool:
         """Validate user inputs before running."""

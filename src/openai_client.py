@@ -365,43 +365,47 @@ class OpenAIClient:
         commentary and extract citations from url_citation annotations.
         """
         try:
-            # Responses API returns output array with message objects
+            # Responses API typically returns output[] -> message -> content[].
+            # Aggregate all text blocks to avoid losing output/citations split across items.
             output = response.get("output", [])
-            
-            # Find the message with text content
-            content = ""
-            annotations = []
-            
+            text_parts: list[str] = []
+            annotations: list[dict] = []
+
             for item in output:
-                if item.get("type") == "message":
-                    for content_item in item.get("content", []):
-                        if content_item.get("type") == "output_text":
-                            content = content_item.get("text", "")
-                            annotations = content_item.get("annotations", [])
-                            break
-                    if content:
-                        break
-            
+                if item.get("type") != "message":
+                    continue
+                for content_item in item.get("content", []):
+                    item_type = content_item.get("type")
+                    if item_type in {"output_text", "text"}:
+                        text_value = content_item.get("text", "")
+                        if isinstance(text_value, str) and text_value.strip():
+                            text_parts.append(text_value.strip())
+                        item_annotations = content_item.get("annotations", [])
+                        if isinstance(item_annotations, list):
+                            annotations.extend(
+                                ann for ann in item_annotations if isinstance(ann, dict)
+                            )
+
+            content = "\n\n".join(text_parts).strip()
+
+            # Fallback for SDK/endpoint variants that expose convenience output_text.
             if not content:
-                # Fallback: check for direct text in output
-                for item in output:
-                    if item.get("type") == "message":
-                        for content_item in item.get("content", []):
-                            if content_item.get("type") == "text":
-                                content = content_item.get("text", "")
-                                annotations = content_item.get("annotations", [])
-                                break
-                        if content:
-                            break
-            
+                top_level_text = response.get("output_text", "")
+                if isinstance(top_level_text, str):
+                    content = top_level_text.strip()
+
             if not content:
+                status = response.get("status", "unknown")
+                response_id = response.get("id", "unknown")
                 return CommentaryResult(
                     ticker=ticker,
                     security_name=security_name,
                     commentary="",
                     citations=[],
                     success=False,
-                    error_message=f"No content in response: {response}"
+                    error_message=(
+                        f"No content in response (status={status}, response_id={response_id})"
+                    ),
                 )
             
             # Extract citations from url_citation annotations
@@ -575,7 +579,11 @@ class OpenAIClient:
                 )
                 completed += 1
                 if self.progress_callback:
-                    self.progress_callback(req["ticker"], completed, total)
+                    try:
+                        self.progress_callback(req["ticker"], completed, total)
+                    except Exception as callback_error:
+                        # Progress reporting must never fail the request path.
+                        print(f"Progress callback error for {req['ticker']}: {callback_error}")
                 return result
         
         async def _cancel_watcher(tasks: list[asyncio.Task]) -> None:
@@ -731,7 +739,11 @@ class OpenAIClient:
                 )
                 completed += 1
                 if self.progress_callback:
-                    self.progress_callback(req["portcode"], completed, total)
+                    try:
+                        self.progress_callback(req["portcode"], completed, total)
+                    except Exception as callback_error:
+                        # Progress reporting must never fail the request path.
+                        print(f"Progress callback error for {req['portcode']}: {callback_error}")
                 return result
 
         async def _cancel_watcher(tasks: list[asyncio.Task]) -> None:
