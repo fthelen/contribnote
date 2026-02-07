@@ -29,7 +29,7 @@ SOURCE_INSTRUCTIONS_WITH_PRIORITY = """Prioritize information from these reputab
 
 SOURCE_INSTRUCTIONS_DEFAULT = """Include citations from reputable financial news sources for key facts."""
 
-DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = """Write a short portfolio commentary for the period {period}. If the country attribution is not provided, assume the United States is the focus country. Research based on the attribution details to fill in market backdrop.
+DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = """Write a single cohesive portfolio attribution paragraph for {period}. If country attribution is not provided, assume the United States is the focus country.
 
 {source_instructions}
 
@@ -39,20 +39,22 @@ Country Attribution:
 Sector Attribution:
 {sector_attrib}
 
+Focus on:
+- The market backdrop relevant to the period
+- The main sector or country winners and laggards relevant to portfolio attribution
+- Portfolio versus benchmark direction and relative outcome
+- The primary allocation and selection drivers shown in the attribution inputs
+
 Requirements:
-    * 9-12 sentences total.
-    * Plain language; avoid jargon.
-    * Prefer qualitative descriptions over exact numbers; do not include exact returns or precise performance figures unless they are unavoidable.
-    * Do not invent portfolio returns, benchmark returns, or sector performance figures.
-    * Add citations for any sentence that references external events, sector/country leadership, or benchmark direction.
+- Write exactly ONE paragraph (9-12 sentences) with natural transitions
+- Keep the prose cohesive and continuous; do not use headings, labels, bullets, or line breaks
+- Do not add notes, disclaimers, or postscript text
+- Use plain, client-facing language and avoid jargon
+- Prefer qualitative descriptions over exact numbers; include precise performance figures only when unavoidable
+- Do not invent portfolio, benchmark, sector, or country performance figures
+- If a claim cannot be supported, omit it"""
 
-Output:
-[State the period and scope]. [Write 1-2 sentences summarizing developments that influenced markets and their overall directional effect]. [Include 1-2 sentences identifying the strongest and/or weakest sectors or countries relevant to the portfolio during the period]. [State whether the portfolio ended higher, lower, flat, or modestly changed, and whether it outperformed, underperformed, or was broadly in line with the benchmark]. [Explain the main drivers of relative performance in terms of attribution effects at the sector and country levels]."""
-
-DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = """Write a concise, factual attribution overview at the portfolio level in the style and scope of the following examples:
-Example 1: A relatively strong earnings season and Federal Reserve interest rate cuts supported stock prices from 12/31/2025 to 1/28/2026. Biotechnology was one of the strongest segments. In this environment, the benchmark ended the period higher, while the strategy did not keep pace and finished the period in negative territory. The strategy’s underperformance was largely due to one factor—lack of exposure to biotechnology stocks.
-Example 2: Developing-nation stocks posted gains over the period from 12/31/2025 to 1/28/2026. Supported by expectations for easier U.S. monetary policy following the Federal Reserve’s mid-September rate cut. Resilience of emerging economies, which have held up well despite shocks to global trade and other geopolitical headwinds further bolstered returns. Against this backdrop, the benchmark rose for the quarter. The strategy underperformed the benchmark. Equities advanced in Taiwan and Korea as optimism about artificial intelligence (AI) coincided with strong demand across global supply chains for semiconductors and technology hardware. Meanwhile, China’s stock market moved lower amid uneven economic conditions and ongoing policy restraint. As a result, underweight positioning in China was a source of strength against the benchmark, while underexposure to Korea worked against us. Stock selection in Taiwan improved relative results as our Taiwan stocks outpaced the benchmark’s Taiwanese positions. The strategy’s holdings in Mexico outperformed as well. Besides the underweight in Korea, sources of underperformance relative to the benchmark included holdings in Singapore and India.
-Prioritize material drivers and avoid speculation. Output should be concise, factual, and modeled after the above examples in format and scope."""
+DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = """Write a single cohesive paragraph that explains portfolio-level attribution in clear client-facing language. Keep the analysis factual, focused on material drivers, and grounded in the provided sector and country attribution inputs. Avoid speculation, section labels, and note-style add-ons, and keep the prose continuous rather than segmented. Never fabricate exact portfolio, benchmark, sector, or country performance figures."""
 
 
 @dataclass
