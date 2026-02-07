@@ -1542,7 +1542,7 @@ class CommentaryGeneratorApp:
             return False
 
         if not self.api_key.strip():
-            messagebox.showerror("Error", "Please configure your OpenAI API key in Settings.")
+            messagebox.showerror("Error", "Please configure your OpenAI API key in API Settings.")
             return False
         
         if not self.input_files:
