@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -34,7 +34,6 @@ from src.prompt_manager import (
     AttributionPromptConfig,
     get_default_preferred_sources,
     DEFAULT_PROMPT_TEMPLATE,
-    SOURCE_INSTRUCTIONS_DEFAULT,
     DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE,
     DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT,
 )
@@ -121,10 +120,181 @@ def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
     return valid_domains, errors
 
 
-class SettingsModal:
-    """Modal window for application settings including API key."""
+def _organize_commentary_results_by_request(
+    requests: list[dict[str, str]],
+    results: list[CommentaryResult],
+) -> tuple[dict[str, dict[str, CommentaryResult]], dict[str, list[str]]]:
+    """
+    Organize commentary results by originating request order.
 
-    def __init__(self, parent: tk.Tk, api_key: str, api_key_source: str, keyring_available: bool, require_citations: bool = True):
+    Args:
+        requests: Commentary requests in submission order.
+        results: Commentary results returned in corresponding order.
+
+    Returns:
+        Tuple containing:
+            - Nested commentary dict keyed by portcode then ticker
+            - Error dict keyed as "PORTCODE|TICKER"
+    """
+    commentary_results: dict[str, dict[str, CommentaryResult]] = {}
+    errors: dict[str, list[str]] = {}
+
+    for request, result in zip(requests, results):
+        portcode = request.get("portcode", "unknown")
+        ticker = request.get("ticker", result.ticker)
+
+        if portcode not in commentary_results:
+            commentary_results[portcode] = {}
+        commentary_results[portcode][ticker] = result
+
+        if not result.success:
+            key = f"{portcode}|{ticker}"
+            errors.setdefault(key, []).append(result.error_message)
+
+    return commentary_results, errors
+
+
+def _compute_overall_progress(
+    completed: int,
+    offset: int,
+    overall_total: int
+) -> tuple[int, int]:
+    """
+    Translate phase-local progress into run-level progress.
+
+    Args:
+        completed: Completed count in the current phase.
+        offset: Number of items completed before this phase.
+        overall_total: Total requests across all phases in this run.
+
+    Returns:
+        Tuple of (overall_completed, overall_total).
+    """
+    if overall_total <= 0:
+        return 0, 0
+
+    normalized_completed = max(0, completed)
+    overall_completed = min(overall_total, offset + normalized_completed)
+    return overall_completed, overall_total
+
+
+def _make_overall_progress_callback(
+    update_progress_fn: Callable[[str, int, int], None],
+    offset: int,
+    overall_total: int
+) -> Callable[[str, int, int], None]:
+    """
+    Create a phase progress callback that reports run-level totals.
+
+    Args:
+        update_progress_fn: App progress callback target.
+        offset: Number of already-completed requests before this phase.
+        overall_total: Total requests in the run.
+
+    Returns:
+        Callback compatible with OpenAIClient progress callback signature.
+    """
+    def _callback(item_id: str, completed: int, _phase_total: int) -> None:
+        overall_completed, total = _compute_overall_progress(
+            completed=completed,
+            offset=offset,
+            overall_total=overall_total
+        )
+        if total > 0:
+            update_progress_fn(item_id, overall_completed, total)
+
+    return _callback
+
+
+class ToolTip:
+    """Simple hover tooltip for tkinter widgets."""
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.tip_window: Optional[tk.Toplevel] = None
+        self._after_id: Optional[str] = None
+
+        self.widget.bind("<Enter>", self._on_enter, add="+")
+        self.widget.bind("<Leave>", self._on_leave, add="+")
+        self.widget.bind("<ButtonPress>", self._on_leave, add="+")
+        self.widget.bind("<Destroy>", self._on_destroy, add="+")
+
+    def _on_enter(self, _event=None):
+        if self._after_id is None:
+            self._after_id = self.widget.after(500, self._show)
+
+    def _on_leave(self, _event=None):
+        self._cancel_pending_show()
+        self._hide()
+
+    def _on_destroy(self, _event=None):
+        self._cancel_pending_show()
+        self._hide()
+
+    def _cancel_pending_show(self):
+        if self._after_id is None:
+            return
+        try:
+            self.widget.after_cancel(self._after_id)
+        except tk.TclError:
+            # The widget or Tcl interpreter may already be gone; ignore errors during
+            # best-effort cancellation of a pending tooltip show callback.
+            pass
+        finally:
+            self._after_id = None
+
+    def _show(self):
+        if self.tip_window is not None:
+            return
+        try:
+            if not self.widget.winfo_exists():
+                self._after_id = None
+                return
+            x = self.widget.winfo_rootx() + 12
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        except tk.TclError:
+            self._after_id = None
+            return
+        self._after_id = None
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify="left",
+            relief="solid",
+            borderwidth=1,
+            padx=6,
+            pady=4,
+            background="#f8f8f8",
+            foreground="#222222",
+            font=Typography.HELP_FONT,
+            wraplength=360,
+        )
+        label.pack()
+
+    def _hide(self):
+        if self.tip_window is not None:
+            try:
+                self.tip_window.destroy()
+            except tk.TclError:
+                # The tooltip window may already have been destroyed or the Tcl interpreter
+                # may be shutting down; ignore errors during best-effort cleanup.
+                pass
+            self.tip_window = None
+
+
+def _make_info_icon(parent: tk.Widget) -> ttk.Label:
+    """Create a small info indicator label for tooltip affordance."""
+    return ttk.Label(parent, text="(i)", cursor="hand2")
+
+
+class SettingsModal:
+    """Modal window for API key settings."""
+
+    def __init__(self, parent: tk.Tk, api_key: str, api_key_source: str, keyring_available: bool):
         """
         Initialize the settings modal window.
 
@@ -133,9 +303,9 @@ class SettingsModal:
             api_key: Current OpenAI API key
             api_key_source: Where the API key was loaded from ("env", "keyring", "config", "session", "none")
             keyring_available: Whether system keychain storage is available
-            require_citations: Whether citations are required in responses
         """
         self.result = None  # Will be set to dict if user saves
+        self._tooltips: list[ToolTip] = []
 
         self.window = tk.Toplevel(parent)
         self.window.title("API Settings")
@@ -172,6 +342,8 @@ class SettingsModal:
         self.show_button.bind("<ButtonRelease-1>", self._hide_key)
         self.show_button.bind("<Leave>", self._hide_key)
         self.window.bind("<FocusOut>", self._hide_key)
+        api_help_icon = _make_info_icon(entry_frame)
+        api_help_icon.grid(row=0, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0))
 
         # Help text for API key
         if keyring_available:
@@ -183,14 +355,6 @@ class SettingsModal:
             "Hold the button to reveal the key.",
             "Get your key from platform.openai.com or set OPENAI_API_KEY."
         ]
-        help_text = ttk.Label(
-            api_frame,
-            text="\n".join(help_lines),
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        help_text.grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
-
         source_note = ""
         if api_key_source == "env":
             source_note = "OPENAI_API_KEY is set and will be used by default."
@@ -200,36 +364,19 @@ class SettingsModal:
             source_note = "Using key from legacy config; it will be migrated."
         elif api_key_source == "session":
             source_note = "Key will be used for this session only."
+
+        tooltip_lines = help_lines[:]
         if source_note:
-            ttk.Label(
-                api_frame,
-                text=source_note,
-                font=Typography.HELP_FONT,
-                foreground=Typography.HELP_COLOR
-            ).grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
-
-        # Citation Settings section
-        citation_frame = ttk.LabelFrame(main_frame, text="Citation Settings", padding=Spacing.FRAME_PADDING)
-        citation_frame.grid(row=1, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
-        citation_frame.columnconfigure(0, weight=1)
-
-        self.require_citations_var = tk.BooleanVar(value=require_citations)
-        ttk.Checkbutton(
-            citation_frame,
-            text="Require Citations",
-            variable=self.require_citations_var
-        ).grid(row=0, column=0, sticky="w")
-
-        ttk.Label(
-            citation_frame,
-            text="When enabled, commentary without citations will be marked as failed.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+            tooltip_lines.append(source_note)
+        self._tooltips.extend([
+            ToolTip(self.api_key_entry, "\n".join(tooltip_lines)),
+            ToolTip(self.show_button, "Hold while pressed to temporarily reveal the API key."),
+            ToolTip(api_help_icon, "\n".join(tooltip_lines)),
+        ])
 
         # Button frame - right aligned at bottom
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=2, column=0, sticky="e", pady=(Spacing.SECTION_MARGIN, 0))
+        btn_frame.grid(row=1, column=0, sticky="e", pady=(Spacing.SECTION_MARGIN, 0))
 
         ttk.Button(btn_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side="left")
@@ -269,14 +416,13 @@ class SettingsModal:
     def on_save(self):
         """Save button clicked - apply changes."""
         self.result = {
-            "api_key": self.api_key_var.get(),
-            "require_citations": self.require_citations_var.get()
+            "api_key": self.api_key_var.get()
         }
         self.window.destroy()
 
 
 class PromptEditorModal:
-    """Modal window for editing prompt template, system prompt, thinking level, and preferred sources."""
+    """Modal window for editing contribution prompts and model settings."""
 
     def __init__(
         self,
@@ -286,9 +432,7 @@ class PromptEditorModal:
         current_thinking_level: str,
         current_model: str,
         available_models: list[str],
-        current_sources: str,
         current_text_verbosity: str,
-        prioritize_sources: bool = True
     ):
         """
         Initialize the modal window.
@@ -300,15 +444,13 @@ class PromptEditorModal:
             current_thinking_level: Current thinking level ("none", "low", "medium", "high", "xhigh")
             current_model: Current model ID
             available_models: List of available model IDs
-            current_sources: Current preferred sources (comma-separated domains)
             current_text_verbosity: Current text verbosity ("low", "medium", "high")
-            prioritize_sources: Whether to inject source prioritization into prompts
         """
         self.result = None  # Will be set to dict if user saves
-        self._prioritize_sources = prioritize_sources
+        self._tooltips: list[ToolTip] = []
 
         self.window = tk.Toplevel(parent)
-        self.window.title("Prompts & Sources")
+        self.window.title("Contribution Settings")
         self.window.transient(parent)
         self.window.grab_set()
 
@@ -321,7 +463,7 @@ class PromptEditorModal:
         main_frame = ttk.Frame(self.window, padding=Spacing.FRAME_PADDING)
         main_frame.grid(row=0, column=0, sticky="nsew")
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(3, weight=1)  # Prompts section expands
+        main_frame.rowconfigure(1, weight=1)  # Prompts section expands
 
         # Thinking level section
         level_frame = ttk.LabelFrame(main_frame, text="Reasoning & Verbosity", padding=Spacing.FRAME_PADDING)
@@ -339,6 +481,8 @@ class PromptEditorModal:
             width=12
         )
         self.thinking_combo.grid(row=0, column=1, sticky="w")
+        reasoning_icon = _make_info_icon(level_frame)
+        reasoning_icon.grid(row=0, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
 
         ttk.Label(level_frame, text="Model:").grid(row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
         model_value = current_model if current_model in available_models else DEFAULT_MODEL
@@ -351,6 +495,8 @@ class PromptEditorModal:
             width=28
         )
         model_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_icon = _make_info_icon(level_frame)
+        model_icon.grid(row=1, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
         model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_reasoning_levels())
 
         ttk.Label(level_frame, text="Text verbosity:").grid(row=2, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0))
@@ -364,81 +510,12 @@ class PromptEditorModal:
             width=12
         )
         verbosity_combo.grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Help text for thinking levels
-        self.reasoning_help_label = ttk.Label(
-            level_frame,
-            text="",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        self.reasoning_help_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
-        self._update_reasoning_levels()
-
-        verbosity_help = ttk.Label(
-            level_frame,
-            text="Verbosity controls response length and detail.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        verbosity_help.grid(row=4, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Preferred sources section
-        sources_frame = ttk.LabelFrame(main_frame, text="Preferred Sources for Web Search", padding=Spacing.FRAME_PADDING)
-        sources_frame.grid(row=1, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
-        sources_frame.columnconfigure(0, weight=1)
-
-        # Prioritize sources checkbox
-        self.prioritize_sources_var = tk.BooleanVar(value=self._prioritize_sources)
-        ttk.Checkbutton(
-            sources_frame,
-            text="Prioritize Sources",
-            variable=self.prioritize_sources_var,
-            command=self._refresh_source_preview
-        ).grid(row=0, column=0, sticky="w")
-
-        ttk.Label(
-            sources_frame,
-            text="When enabled, the model will be instructed to prioritize the listed sources.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        ttk.Label(sources_frame, text="Domain names (comma-separated):").grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
-        self.sources_var = tk.StringVar(value=current_sources)
-        sources_entry = ttk.Entry(sources_frame, textvariable=self.sources_var)
-        sources_entry.grid(row=3, column=0, sticky="ew", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Help text for sources
-        sources_help = ttk.Label(
-            sources_frame,
-            text="Examples: reuters.com, bloomberg.com, cnbc.com\nURLs are cleaned automatically (removes http://, www., etc.)",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        sources_help.grid(row=4, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Error message label for sources validation
-        self.sources_error_var = tk.StringVar()
-        self.sources_error_label = ttk.Label(
-            sources_frame,
-            textvariable=self.sources_error_var,
-            font=Typography.HELP_FONT,
-            foreground=Typography.ERROR_COLOR
-        )
-        self.sources_error_label.grid(row=5, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Source instructions preview
-        preview_frame = ttk.LabelFrame(main_frame, text="Source Instructions Preview", padding=Spacing.FRAME_PADDING)
-        preview_frame.grid(row=2, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
-        preview_frame.columnconfigure(0, weight=1)
-
-        self.source_preview_text = tk.Text(preview_frame, height=3, wrap=tk.WORD, state="disabled")
-        self.source_preview_text.grid(row=0, column=0, sticky="ew")
+        verbosity_icon = _make_info_icon(level_frame)
+        verbosity_icon.grid(row=2, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
 
         # Prompts tabs section
         prompt_frame = ttk.LabelFrame(main_frame, text="Prompts", padding=Spacing.FRAME_PADDING)
-        prompt_frame.grid(row=3, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
+        prompt_frame.grid(row=1, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
         prompt_frame.columnconfigure(0, weight=1)
         prompt_frame.rowconfigure(0, weight=1)
 
@@ -455,15 +532,8 @@ class PromptEditorModal:
         self.prompt_text = scrolledtext.ScrolledText(user_prompt_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
         self.prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
         self.prompt_text.insert("1.0", current_prompt)
-
-        # Variables helper for user prompt
-        help_label = ttk.Label(
-            user_prompt_tab,
-            text="Variables: {ticker}, {security_name}, {period}, {source_instructions}",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        help_label.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+        prompt_icon = _make_info_icon(user_prompt_tab)
+        prompt_icon.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(0, Spacing.CONTROL_GAP))
 
         # Tab 2: System/Developer Prompt
         dev_prompt_tab = ttk.Frame(self.notebook)
@@ -474,19 +544,12 @@ class PromptEditorModal:
         self.dev_prompt_text = scrolledtext.ScrolledText(dev_prompt_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
         self.dev_prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
         self.dev_prompt_text.insert("1.0", current_developer_prompt)
-
-        # Help text for system prompt
-        dev_help_label = ttk.Label(
-            dev_prompt_tab,
-            text="System prompt controls the LLM's behavior and tone for all requests.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        dev_help_label.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+        dev_prompt_icon = _make_info_icon(dev_prompt_tab)
+        dev_prompt_icon.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(0, Spacing.CONTROL_GAP))
 
         # Button frame - Reset buttons left, Cancel/Save right
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=4, column=0, sticky="ew")
+        btn_frame.grid(row=2, column=0, sticky="ew")
         btn_frame.columnconfigure(0, weight=1)
 
         # Left side - Reset buttons
@@ -501,8 +564,34 @@ class PromptEditorModal:
         ttk.Button(action_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         ttk.Button(action_frame, text="Save", command=self.on_save).pack(side="left")
 
-        self.sources_var.trace_add("write", self._on_sources_change)
-        self._refresh_source_preview()
+        self.reasoning_tooltip = ToolTip(self.thinking_combo, "")
+        self.reasoning_icon_tooltip = ToolTip(reasoning_icon, "")
+        self._tooltips.extend([
+            self.reasoning_tooltip,
+            self.reasoning_icon_tooltip,
+            ToolTip(model_combo, "Select the model used for contribution commentary."),
+            ToolTip(model_icon, "Select the model used for contribution commentary."),
+            ToolTip(verbosity_combo, "Controls response length and detail."),
+            ToolTip(verbosity_icon, "Controls response length and detail."),
+            ToolTip(
+                self.prompt_text,
+                "Template variables: {ticker}, {security_name}, {period}, {source_instructions}",
+            ),
+            ToolTip(
+                prompt_icon,
+                "Template variables: {ticker}, {security_name}, {period}, {source_instructions}",
+            ),
+            ToolTip(
+                self.dev_prompt_text,
+                "System prompt controls the model behavior and tone for all contribution requests.",
+            ),
+            ToolTip(
+                dev_prompt_icon,
+                "System prompt controls the model behavior and tone for all contribution requests.",
+            ),
+        ])
+        self._update_reasoning_levels()
+
         self.window.focus()
 
     def _center_on_parent(self, parent: tk.Tk, width: int, height: int):
@@ -545,7 +634,11 @@ class PromptEditorModal:
             default_level = "none" if "none" in levels else "medium"
             self.thinking_var.set(default_level)
 
-        self.reasoning_help_label.configure(text=self._build_reasoning_help_text(levels))
+        if hasattr(self, "reasoning_tooltip"):
+            help_text = f"Supported levels: {self._build_reasoning_help_text(levels)}"
+            self.reasoning_tooltip.text = help_text
+            if hasattr(self, "reasoning_icon_tooltip"):
+                self.reasoning_icon_tooltip.text = help_text
     
     def reset_user_prompt(self):
         """Reset user prompt to default template."""
@@ -557,31 +650,6 @@ class PromptEditorModal:
         self.dev_prompt_text.delete("1.0", tk.END)
         self.dev_prompt_text.insert("1.0", DEFAULT_DEVELOPER_PROMPT)
 
-    def _on_sources_change(self, *_args):
-        self._refresh_source_preview()
-
-    def _refresh_source_preview(self):
-        valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
-        if errors and self.sources_var.get().strip():
-            self.sources_error_var.set("Errors: " + "; ".join(errors))
-        else:
-            self.sources_error_var.set("")
-
-        # Show preview based on prioritize_sources setting
-        if self.prioritize_sources_var.get() and valid_domains:
-            preview_config = PromptConfig(preferred_sources=valid_domains)
-            preview_manager = PromptManager(preview_config)
-            preview_text = preview_manager.get_source_instructions()
-        elif self.prioritize_sources_var.get():
-            preview_text = SOURCE_INSTRUCTIONS_DEFAULT
-        else:
-            preview_text = "(Source prioritization disabled - no instructions will be added to prompt)"
-
-        self.source_preview_text.configure(state="normal")
-        self.source_preview_text.delete("1.0", tk.END)
-        self.source_preview_text.insert("1.0", preview_text)
-        self.source_preview_text.configure(state="disabled")
-    
     def on_cancel(self):
         """Cancel button clicked - discard changes."""
         self.result = None
@@ -589,21 +657,12 @@ class PromptEditorModal:
     
     def on_save(self):
         """Save button clicked - apply changes."""
-        # Validate and clean sources
-        valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
-        
-        if errors:
-            self.sources_error_var.set("Errors: " + "; ".join(errors))
-            return
-        
         self.result = {
             "prompt_template": self.prompt_text.get("1.0", tk.END).strip(),
             "developer_prompt": self.dev_prompt_text.get("1.0", tk.END).strip(),
             "thinking_level": self.thinking_var.get(),
             "model": self.model_var.get(),
             "text_verbosity": self.text_verbosity_var.get(),
-            "preferred_sources": ", ".join(valid_domains),  # Return cleaned domains
-            "prioritize_sources": self.prioritize_sources_var.get()
         }
         self.window.destroy()
 
@@ -622,9 +681,10 @@ class AttributionWorkflowModal:
         current_text_verbosity: str,
     ):
         self.result = None
+        self._tooltips: list[ToolTip] = []
 
         self.window = tk.Toplevel(parent)
-        self.window.title("Attribution Workflow")
+        self.window.title("Attribution Settings")
         self.window.transient(parent)
         self.window.grab_set()
 
@@ -651,6 +711,8 @@ class AttributionWorkflowModal:
             width=12
         )
         self.thinking_combo.grid(row=0, column=1, sticky="w")
+        reasoning_icon = _make_info_icon(level_frame)
+        reasoning_icon.grid(row=0, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
 
         ttk.Label(level_frame, text="Model:").grid(
             row=1, column=0, sticky="w", padx=(0, Spacing.LABEL_GAP), pady=(Spacing.CONTROL_GAP_SMALL, 0)
@@ -665,6 +727,8 @@ class AttributionWorkflowModal:
             width=28
         )
         model_combo.grid(row=1, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        model_icon = _make_info_icon(level_frame)
+        model_icon.grid(row=1, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
         model_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_reasoning_levels())
 
         ttk.Label(level_frame, text="Text verbosity:").grid(
@@ -679,22 +743,8 @@ class AttributionWorkflowModal:
             width=12
         )
         verbosity_combo.grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        self.reasoning_help_label = ttk.Label(
-            level_frame,
-            text="",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        )
-        self.reasoning_help_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
-        self._update_reasoning_levels()
-
-        ttk.Label(
-            level_frame,
-            text="Verbosity controls response length and detail.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        verbosity_icon = _make_info_icon(level_frame)
+        verbosity_icon.grid(row=2, column=2, padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP_SMALL, 0), sticky="w")
 
         prompt_frame = ttk.LabelFrame(main_frame, text="Attribution Prompts", padding=Spacing.FRAME_PADDING)
         prompt_frame.grid(row=1, column=0, sticky="nsew", pady=(0, Spacing.SECTION_MARGIN))
@@ -712,13 +762,8 @@ class AttributionWorkflowModal:
         self.prompt_text = scrolledtext.ScrolledText(user_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
         self.prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
         self.prompt_text.insert("1.0", current_prompt)
-
-        ttk.Label(
-            user_tab,
-            text="Variables: {portcode}, {period}, {sector_attrib}, {country_attrib}, {source_instructions}",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+        prompt_icon = _make_info_icon(user_tab)
+        prompt_icon.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(0, Spacing.CONTROL_GAP))
 
         dev_tab = ttk.Frame(notebook)
         notebook.add(dev_tab, text="System Prompt (Instructions)")
@@ -728,13 +773,8 @@ class AttributionWorkflowModal:
         self.dev_prompt_text = scrolledtext.ScrolledText(dev_tab, height=Dimensions.PROMPT_TEXT_HEIGHT, wrap=tk.WORD)
         self.dev_prompt_text.grid(row=0, column=0, sticky="nsew", padx=Spacing.CONTROL_GAP, pady=Spacing.CONTROL_GAP)
         self.dev_prompt_text.insert("1.0", current_developer_prompt)
-
-        ttk.Label(
-            dev_tab,
-            text="System prompt controls attribution overview behavior and tone.",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(Spacing.CONTROL_GAP_SMALL, Spacing.CONTROL_GAP))
+        dev_prompt_icon = _make_info_icon(dev_tab)
+        dev_prompt_icon.grid(row=1, column=0, sticky="w", padx=Spacing.CONTROL_GAP, pady=(0, Spacing.CONTROL_GAP))
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=2, column=0, sticky="ew")
@@ -751,6 +791,34 @@ class AttributionWorkflowModal:
         action_frame.grid(row=0, column=1, sticky="e")
         ttk.Button(action_frame, text="Cancel", command=self.on_cancel).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
         ttk.Button(action_frame, text="Save", command=self.on_save).pack(side="left")
+
+        self.reasoning_tooltip = ToolTip(self.thinking_combo, "")
+        self.reasoning_icon_tooltip = ToolTip(reasoning_icon, "")
+        self._tooltips.extend([
+            self.reasoning_tooltip,
+            self.reasoning_icon_tooltip,
+            ToolTip(model_combo, "Select the model used for attribution overview output."),
+            ToolTip(model_icon, "Select the model used for attribution overview output."),
+            ToolTip(verbosity_combo, "Controls response length and detail."),
+            ToolTip(verbosity_icon, "Controls response length and detail."),
+            ToolTip(
+                self.prompt_text,
+                "Template variables: {portcode}, {period}, {sector_attrib}, {country_attrib}, {source_instructions}",
+            ),
+            ToolTip(
+                prompt_icon,
+                "Template variables: {portcode}, {period}, {sector_attrib}, {country_attrib}, {source_instructions}",
+            ),
+            ToolTip(
+                self.dev_prompt_text,
+                "System prompt controls behavior and tone for attribution overview requests.",
+            ),
+            ToolTip(
+                dev_prompt_icon,
+                "System prompt controls behavior and tone for attribution overview requests.",
+            ),
+        ])
+        self._update_reasoning_levels()
 
         self.window.focus()
 
@@ -791,7 +859,11 @@ class AttributionWorkflowModal:
             default_level = "none" if "none" in levels else "medium"
             self.thinking_var.set(default_level)
 
-        self.reasoning_help_label.configure(text=self._build_reasoning_help_text(levels))
+        if hasattr(self, "reasoning_tooltip"):
+            help_text = f"Supported levels: {self._build_reasoning_help_text(levels)}"
+            self.reasoning_tooltip.text = help_text
+            if hasattr(self, "reasoning_icon_tooltip"):
+                self.reasoning_icon_tooltip.text = help_text
 
     def reset_user_prompt(self):
         """Reset attribution user prompt to default template."""
@@ -846,6 +918,7 @@ class CommentaryGeneratorApp:
         self._cancel_requested: bool = False
         self._exit_after_cancel: bool = False
         self._progress_queue: queue.SimpleQueue[tuple[str, int, int]] = queue.SimpleQueue()
+        self._ui_callback_queue: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
 
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
@@ -860,6 +933,7 @@ class CommentaryGeneratorApp:
         # Citation and source settings
         self.require_citations: bool = True  # Default: require citations
         self.prioritize_sources: bool = True  # Default: inject source instructions into prompt
+        self._tooltips: list[ToolTip] = []
 
         # Configure grid weights for resizing
         self.root.columnconfigure(0, weight=1)
@@ -966,6 +1040,12 @@ class CommentaryGeneratorApp:
             # Load prioritize_sources setting
             if "prioritize_sources" in config:
                 self.prioritize_sources = config["prioritize_sources"]
+
+            if hasattr(self, "require_citations_var"):
+                self.require_citations_var.set(self.require_citations)
+            if hasattr(self, "prioritize_sources_var"):
+                self.prioritize_sources_var.set(self.prioritize_sources)
+            self._refresh_global_source_errors()
             
             # Load output folder
             if "output_folder" in config:
@@ -1089,43 +1169,88 @@ class CommentaryGeneratorApp:
             variable=self.run_attribution_var
         ).grid(row=2, column=1, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
 
+        citation_frame = ttk.LabelFrame(options_frame, text="Citation Preferences", padding=Spacing.FRAME_PADDING)
+        citation_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(Spacing.SECTION_MARGIN, 0))
+        citation_frame.columnconfigure(0, weight=1)
+
+        self.require_citations_var = tk.BooleanVar(value=self.require_citations)
+        require_citations_check = ttk.Checkbutton(
+            citation_frame,
+            text="Require Citations",
+            variable=self.require_citations_var
+        )
+        require_citations_check.grid(row=0, column=0, sticky="w")
+        require_citations_icon = _make_info_icon(citation_frame)
+        require_citations_icon.grid(row=0, column=1, sticky="w", padx=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        self.prioritize_sources_var = tk.BooleanVar(value=self.prioritize_sources)
+        prioritize_sources_check = ttk.Checkbutton(
+            citation_frame,
+            text="Prioritize Sources",
+            variable=self.prioritize_sources_var,
+        )
+        prioritize_sources_check.grid(row=1, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        prioritize_sources_icon = _make_info_icon(citation_frame)
+        prioritize_sources_icon.grid(
+            row=1, column=1, sticky="w", padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP_SMALL, 0)
+        )
+
+        ttk.Label(
+            citation_frame,
+            text="Preferred Sources (comma-separated domains):"
+        ).grid(row=2, column=0, sticky="w", pady=(Spacing.CONTROL_GAP, 0))
+        sources_label_icon = _make_info_icon(citation_frame)
+        sources_label_icon.grid(row=2, column=1, sticky="w", padx=(Spacing.CONTROL_GAP_SMALL, 0), pady=(Spacing.CONTROL_GAP, 0))
+        sources_entry = ttk.Entry(citation_frame, textvariable=self.sources_var)
+        sources_entry.grid(
+            row=3, column=0, sticky="ew", pady=(Spacing.CONTROL_GAP_SMALL, 0)
+        )
+
+        self.global_sources_error_var = tk.StringVar()
+        ttk.Label(
+            citation_frame,
+            textvariable=self.global_sources_error_var,
+            font=Typography.HELP_FONT,
+            foreground=Typography.ERROR_COLOR
+        ).grid(row=4, column=0, sticky="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        self.sources_var.trace_add("write", self._on_global_sources_change)
+        self._refresh_global_source_errors()
+
         current_row += 1
 
-        # ====== Configuration Section (merged API Settings + Prompts & Sources) ======
+        # ====== Configuration Section ======
         config_frame = ttk.LabelFrame(main_frame, text="Configuration", padding=Spacing.FRAME_PADDING)
         config_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
         config_frame.columnconfigure(0, weight=1)
         config_frame.columnconfigure(1, weight=1)
-        config_frame.columnconfigure(2, weight=1)
 
-        # API Settings button with description
-        api_container = ttk.Frame(config_frame)
-        api_container.grid(row=0, column=0, sticky="w", padx=(0, Spacing.SECTION_MARGIN))
-        ttk.Button(api_container, text="API Settings", command=self.open_settings).pack(anchor="w")
-        ttk.Label(api_container, text="Configure your OpenAI API key",
-                  font=Typography.HELP_FONT, foreground=Typography.HELP_COLOR).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
-
-        # Prompts & Sources button with description
+        # Contribution settings button with description
         prompts_container = ttk.Frame(config_frame)
-        prompts_container.grid(row=0, column=1, sticky="w")
-        ttk.Button(prompts_container, text="Prompts & Sources", command=self.open_prompt_editor).pack(anchor="w")
-        ttk.Label(prompts_container, text="Edit prompts, sources, reasoning, and verbosity",
-                  font=Typography.HELP_FONT, foreground=Typography.HELP_COLOR).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        prompts_container.grid(row=0, column=0, sticky="w", padx=(0, Spacing.SECTION_MARGIN))
+        contribution_button_row = ttk.Frame(prompts_container)
+        contribution_button_row.pack(anchor="w")
+        contribution_settings_btn = ttk.Button(
+            contribution_button_row,
+            text="Contribution Settings",
+            command=self.open_prompt_editor
+        )
+        contribution_settings_btn.pack(side="left")
+        contribution_settings_icon = _make_info_icon(contribution_button_row)
+        contribution_settings_icon.pack(side="left", padx=(Spacing.CONTROL_GAP_SMALL, 0))
 
-        # Attribution workflow button with description
+        # Attribution settings button with description
         attribution_container = ttk.Frame(config_frame)
-        attribution_container.grid(row=0, column=2, sticky="w")
-        ttk.Button(
-            attribution_container,
-            text="Attribution Workflow",
+        attribution_container.grid(row=0, column=1, sticky="w")
+        attribution_button_row = ttk.Frame(attribution_container)
+        attribution_button_row.pack(anchor="w")
+        attribution_settings_btn = ttk.Button(
+            attribution_button_row,
+            text="Attribution Settings",
             command=self.open_attribution_workflow_editor
-        ).pack(anchor="w")
-        ttk.Label(
-            attribution_container,
-            text="Edit separate attribution prompt and model settings",
-            font=Typography.HELP_FONT,
-            foreground=Typography.HELP_COLOR
-        ).pack(anchor="w", pady=(Spacing.CONTROL_GAP_SMALL, 0))
+        )
+        attribution_settings_btn.pack(side="left")
+        attribution_settings_icon = _make_info_icon(attribution_button_row)
+        attribution_settings_icon.pack(side="left", padx=(Spacing.CONTROL_GAP_SMALL, 0))
 
         current_row += 1
 
@@ -1144,13 +1269,46 @@ class CommentaryGeneratorApp:
 
         current_row += 1
 
-        # ====== Action Buttons (right-aligned with primary emphasis) ======
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=current_row, column=0, sticky="e", pady=(0, Spacing.SECTION_MARGIN))
+        # ====== Footer Actions ======
+        footer_frame = ttk.Frame(main_frame)
+        footer_frame.grid(row=current_row, column=0, sticky="ew", pady=(0, Spacing.SECTION_MARGIN))
+        footer_frame.columnconfigure(0, weight=1)
 
-        ttk.Button(btn_frame, text="Exit", command=self.on_exit_requested).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
-        self.run_btn = ttk.Button(btn_frame, text="Generate Commentary", command=self.run_generation, style="Primary.TButton")
+        left_actions = ttk.Frame(footer_frame)
+        left_actions.grid(row=0, column=0, sticky="w")
+        api_settings_btn = ttk.Button(left_actions, text="API Settings", command=self.open_settings)
+        api_settings_btn.pack(side="left")
+        api_settings_icon = _make_info_icon(left_actions)
+        api_settings_icon.pack(side="left", padx=(Spacing.CONTROL_GAP_SMALL, 0))
+
+        right_actions = ttk.Frame(footer_frame)
+        right_actions.grid(row=0, column=1, sticky="e")
+        ttk.Button(right_actions, text="Exit", command=self.on_exit_requested).pack(side="left", padx=(0, Spacing.BUTTON_PAD))
+        self.run_btn = ttk.Button(right_actions, text="Generate Commentary", command=self.run_generation, style="Primary.TButton")
         self.run_btn.pack(side="left")
+
+        self._tooltips.extend([
+            ToolTip(require_citations_check, "Mark responses without citations as failed."),
+            ToolTip(require_citations_icon, "Mark responses without citations as failed."),
+            ToolTip(prioritize_sources_check, "When enabled, prompts ask the model to prioritize your preferred domains."),
+            ToolTip(prioritize_sources_icon, "When enabled, prompts ask the model to prioritize your preferred domains."),
+            ToolTip(
+                sources_entry,
+                "Comma-separated domains, e.g. reuters.com, bloomberg.com, cnbc.com. "
+                "URLs are cleaned automatically."
+            ),
+            ToolTip(
+                sources_label_icon,
+                "Comma-separated domains, e.g. reuters.com, bloomberg.com, cnbc.com. "
+                "URLs are cleaned automatically."
+            ),
+            ToolTip(contribution_settings_btn, "Edit contribution prompts plus model reasoning and verbosity."),
+            ToolTip(contribution_settings_icon, "Edit contribution prompts plus model reasoning and verbosity."),
+            ToolTip(attribution_settings_btn, "Edit attribution overview prompts plus model reasoning and verbosity."),
+            ToolTip(attribution_settings_icon, "Edit attribution overview prompts plus model reasoning and verbosity."),
+            ToolTip(api_settings_btn, "Configure your OpenAI API key."),
+            ToolTip(api_settings_icon, "Configure your OpenAI API key."),
+        ])
     
     def load_api_key(self):
         """Load API key from environment or keychain."""
@@ -1218,9 +1376,45 @@ class CommentaryGeneratorApp:
             self.count_combo.configure(state="disabled")
         else:
             self.count_combo.configure(state="readonly")
+
+    def _on_global_sources_change(self, *_args):
+        """Refresh inline domain validation when preferred sources change."""
+        self._refresh_global_source_errors()
+
+    def _refresh_global_source_errors(self) -> None:
+        """Refresh the inline source validation error text."""
+        if not hasattr(self, "global_sources_error_var"):
+            return
+
+        _, errors = validate_and_clean_domains(self.sources_var.get())
+        if errors and self.sources_var.get().strip():
+            self.global_sources_error_var.set("Errors: " + "; ".join(errors))
+        else:
+            self.global_sources_error_var.set("")
+
+    def _sync_and_validate_global_preferences(self) -> bool:
+        """Sync global UI preferences into app state and validate sources."""
+        if hasattr(self, "require_citations_var"):
+            self.require_citations = self.require_citations_var.get()
+        if hasattr(self, "prioritize_sources_var"):
+            self.prioritize_sources = self.prioritize_sources_var.get()
+
+        valid_domains, errors = validate_and_clean_domains(self.sources_var.get())
+        if errors:
+            self._refresh_global_source_errors()
+            messagebox.showerror(
+                "Error",
+                "Please fix invalid preferred source domains before running.",
+                parent=self.root,
+            )
+            return False
+
+        self.sources_var.set(", ".join(valid_domains))
+        self._refresh_global_source_errors()
+        return True
     
     def open_prompt_editor(self):
-        """Open the prompt editor modal window."""
+        """Open the contribution settings modal window."""
         modal = PromptEditorModal(
             self.root,
             self.prompt_text_content,
@@ -1228,9 +1422,7 @@ class CommentaryGeneratorApp:
             self.thinking_level,
             self.model_id,
             AVAILABLE_MODELS,
-            self.sources_var.get(),
             self.text_verbosity,
-            self.prioritize_sources
         )
         self.root.wait_window(modal.window)
         
@@ -1241,11 +1433,9 @@ class CommentaryGeneratorApp:
             self.thinking_level = modal.result["thinking_level"]
             self.model_id = modal.result["model"]
             self.text_verbosity = modal.result["text_verbosity"]
-            self.sources_var.set(modal.result["preferred_sources"])
-            self.prioritize_sources = modal.result["prioritize_sources"]
 
     def open_attribution_workflow_editor(self):
-        """Open the attribution workflow modal window."""
+        """Open the attribution settings modal window."""
         modal = AttributionWorkflowModal(
             self.root,
             self.attribution_prompt_text_content,
@@ -1265,14 +1455,12 @@ class CommentaryGeneratorApp:
             self.attribution_text_verbosity = modal.result["text_verbosity"]
     
     def open_settings(self):
-        """Open the settings modal window."""
-        modal = SettingsModal(self.root, self.api_key, self.api_key_source, self.keyring_available, self.require_citations)
+        """Open the API settings modal window."""
+        modal = SettingsModal(self.root, self.api_key, self.api_key_source, self.keyring_available)
         self.root.wait_window(modal.window)
         
         # Apply changes if user clicked Save
         if modal.result:
-            # Handle require_citations setting
-            self.require_citations = modal.result.get("require_citations", True)
             env_key = os.environ.get("OPENAI_API_KEY", "")
             env_present = bool(env_key)
             new_key = modal.result["api_key"].strip()
@@ -1325,8 +1513,12 @@ class CommentaryGeneratorApp:
         """Enqueue progress updates from worker threads."""
         self._progress_queue.put((ticker, completed, total))
 
+    def _enqueue_ui_callback(self, callback: Callable[[], None]) -> None:
+        """Queue a UI callback to run on the Tk main thread."""
+        self._ui_callback_queue.put(callback)
+
     def _schedule_progress_queue_drain(self) -> None:
-        """Drain queued progress updates on the Tk main thread."""
+        """Drain queued progress/UI updates on the Tk main thread."""
         latest: Optional[tuple[str, int, int]] = None
         while True:
             try:
@@ -1340,12 +1532,25 @@ class CommentaryGeneratorApp:
             self.progress_var.set(progress)
             self.status_var.set(f"Processing: {ticker} ({completed}/{total})")
 
+        while True:
+            try:
+                callback = self._ui_callback_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback()
+            except Exception as callback_error:
+                print(f"UI callback error: {callback_error}")
+
         self.root.after(100, self._schedule_progress_queue_drain)
     
     def validate_inputs(self) -> bool:
         """Validate user inputs before running."""
+        if not self._sync_and_validate_global_preferences():
+            return False
+
         if not self.api_key.strip():
-            messagebox.showerror("Error", "Please configure your OpenAI API key in Settings.")
+            messagebox.showerror("Error", "Please configure your OpenAI API key in API Settings.")
             return False
         
         if not self.input_files:
@@ -1395,15 +1600,15 @@ class CommentaryGeneratorApp:
             result = loop.run_until_complete(self._async_generate())
             
             # Update UI on main thread
-            self.root.after(0, lambda: self._on_generation_complete(result))
+            self._enqueue_ui_callback(lambda: self._on_generation_complete(result))
             
         except asyncio.CancelledError:
-            self.root.after(0, self._on_generation_cancelled)
+            self._enqueue_ui_callback(self._on_generation_cancelled)
         except Exception as e:
-            self.root.after(0, lambda: self._on_generation_error(str(e)))
+            self._enqueue_ui_callback(lambda: self._on_generation_error(str(e)))
         finally:
             self.is_running = False
-            self.root.after(0, lambda: self.run_btn.configure(state="normal"))
+            self._enqueue_ui_callback(lambda: self.run_btn.configure(state="normal"))
             self._generation_loop = None
             self._cancel_event = None
     
@@ -1414,7 +1619,7 @@ class CommentaryGeneratorApp:
         attribution_overview_results: Optional[dict[str, AttributionOverviewResult]] = None
         
         # Update status
-        self.root.after(0, lambda: self.status_var.set("Parsing Excel files..."))
+        self._enqueue_ui_callback(lambda: self.status_var.set("Parsing Excel files..."))
         
         # Parse input files
         portfolios = parse_multiple_files(self.input_files)
@@ -1444,17 +1649,8 @@ class CommentaryGeneratorApp:
         )
         prompt_manager = PromptManager(prompt_config)
         
-        # Set up OpenAI client for security-level commentary
-        commentary_client = OpenAIClient(
-            api_key=self.api_key.strip(),
-            progress_callback=self.update_progress,
-            developer_prompt=self.developer_prompt_content,
-            model=self.model_id
-        )
-        
         # Build all API requests
         all_requests = []
-        request_mapping = {}  # Map ticker to (portcode, period)
         
         for selection in selections:
             for ranked_sec in selection.ranked_securities:
@@ -1469,43 +1665,11 @@ class CommentaryGeneratorApp:
                     "prompt": prompt,
                     "portcode": selection.portcode
                 })
-                request_mapping[ranked_sec.ticker] = selection.portcode
-        
-        # Update status
-        total = len(all_requests)
-        self.root.after(0, lambda: self.status_var.set(f"Generating commentary for {total} securities..."))
-        
-        # Generate commentary (batch)
-        results = await commentary_client.generate_commentary_batch(
-            all_requests,
-            use_web_search=True,
-            thinking_level=self.thinking_level,
-            text_verbosity=self.text_verbosity,
-            require_citations=self.require_citations,
-            cancel_event=self._cancel_event
-        )
 
-        if self._cancel_event and self._cancel_event.is_set():
-            raise asyncio.CancelledError()
-        
-        # Organize results by portfolio
-        commentary_results: dict[str, dict[str, CommentaryResult]] = {}
-        for result in results:
-            portcode = request_mapping.get(result.ticker, "unknown")
-            if portcode not in commentary_results:
-                commentary_results[portcode] = {}
-            commentary_results[portcode][result.ticker] = result
-            
-            # Track errors
-            if not result.success:
-                key = f"{portcode}|{result.ticker}"
-                if key not in errors:
-                    errors[key] = []
-                errors[key].append(result.error_message)
-
+        # Build attribution requests up front so progress can track all requests end-to-end.
+        attribution_requests: list[dict[str, str]] = []
         if self.run_attribution_overview:
             attribution_overview_results = {}
-            self.root.after(0, lambda: self.status_var.set("Generating attribution overviews..."))
 
             attribution_prompt_config = AttributionPromptConfig(
                 template=self.attribution_prompt_text_content,
@@ -1514,8 +1678,6 @@ class CommentaryGeneratorApp:
                 prioritize_sources=self.prioritize_sources,
             )
             attribution_prompt_manager = AttributionPromptManager(attribution_prompt_config)
-
-            attribution_requests: list[dict[str, str]] = []
 
             for portfolio in portfolios:
                 has_sector_data = (
@@ -1565,10 +1727,60 @@ class CommentaryGeneratorApp:
                     }
                 )
 
+        commentary_total = len(all_requests)
+        attribution_total = len(attribution_requests)
+        overall_total = commentary_total + attribution_total
+
+        # Set up OpenAI client for security-level commentary with run-level progress totals.
+        commentary_progress_callback = _make_overall_progress_callback(
+            update_progress_fn=self.update_progress,
+            offset=0,
+            overall_total=overall_total,
+        )
+        commentary_client = OpenAIClient(
+            api_key=self.api_key.strip(),
+            progress_callback=commentary_progress_callback,
+            developer_prompt=self.developer_prompt_content,
+            model=self.model_id
+        )
+        
+        # Update status
+        self._enqueue_ui_callback(
+            lambda: self.status_var.set(f"Generating commentary for {commentary_total} securities...")
+        )
+        
+        # Generate commentary (batch)
+        results = await commentary_client.generate_commentary_batch(
+            all_requests,
+            use_web_search=True,
+            thinking_level=self.thinking_level,
+            text_verbosity=self.text_verbosity,
+            require_citations=self.require_citations,
+            cancel_event=self._cancel_event
+        )
+
+        if self._cancel_event and self._cancel_event.is_set():
+            raise asyncio.CancelledError()
+        
+        # Organize results by originating request order to avoid ticker collisions
+        commentary_results, commentary_errors = _organize_commentary_results_by_request(
+            all_requests,
+            results
+        )
+        for key, error_list in commentary_errors.items():
+            errors.setdefault(key, []).extend(error_list)
+
+        if self.run_attribution_overview:
+            self._enqueue_ui_callback(lambda: self.status_var.set("Generating attribution overviews..."))
             if attribution_requests:
+                attribution_progress_callback = _make_overall_progress_callback(
+                    update_progress_fn=self.update_progress,
+                    offset=commentary_total,
+                    overall_total=overall_total,
+                )
                 attribution_client = OpenAIClient(
                     api_key=self.api_key.strip(),
-                    progress_callback=self.update_progress,
+                    progress_callback=attribution_progress_callback,
                     developer_prompt=self.attribution_developer_prompt_content,
                     model=self.attribution_model_id,
                 )
@@ -1593,7 +1805,7 @@ class CommentaryGeneratorApp:
                         ).append(overview_result.error_message)
         
         # Update status
-        self.root.after(0, lambda: self.status_var.set("Creating output workbook..."))
+        self._enqueue_ui_callback(lambda: self.status_var.set("Creating output workbook..."))
         
         # Create output workbook (output_folder validated in validate_inputs)
         assert self.output_folder is not None
@@ -1618,7 +1830,10 @@ class CommentaryGeneratorApp:
         return {
             "output_path": output_path,
             "log_path": log_path,
-            "total_securities": total,
+            "total_securities": commentary_total,
+            "total_commentary_requests": commentary_total,
+            "total_attribution_requests": attribution_total,
+            "total_requests": overall_total,
             "errors": len(errors),
             "duration": (end_time - start_time).total_seconds()
         }
@@ -1647,23 +1862,37 @@ class CommentaryGeneratorApp:
     
     def _on_generation_complete(self, result: dict):
         """Handle successful generation completion."""
-        # Save configuration after successful generation
-        self.save_config()
-        
         self.progress_var.set(100)
         self.status_var.set("Complete!")
-        
-        message = (
-            f"Commentary generation complete!\n\n"
-            f"Securities processed: {result['total_securities']}\n"
-            f"Errors: {result['errors']}\n"
-            f"Duration: {result['duration']:.1f} seconds\n\n"
-            f"Output file:\n{result['output_path']}\n\n"
-            f"Log file:\n{result['log_path']}"
-        )
-        messagebox.showinfo("Success", message)
-        self.status_var.set("Ready")
-        self.progress_var.set(0)
+
+        commentary_processed = int(result.get("total_commentary_requests", result.get("total_securities", 0)))
+        attribution_processed = int(result.get("total_attribution_requests", 0))
+        total_processed = int(result.get("total_requests", commentary_processed + attribution_processed))
+
+        try:
+            # Save configuration after successful generation
+            self.save_config()
+
+            message = (
+                f"Commentary generation complete!\n\n"
+                f"Commentary requests processed: {commentary_processed}\n"
+                f"Attribution requests processed: {attribution_processed}\n"
+                f"Total requests processed: {total_processed}\n"
+                f"Errors: {result['errors']}\n"
+                f"Duration: {result['duration']:.1f} seconds\n\n"
+                f"Output file:\n{result['output_path']}\n\n"
+                f"Log file:\n{result['log_path']}"
+            )
+            messagebox.showinfo("Success", message, parent=self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Generation finished but failed to display completion details:\n\n{e}",
+                parent=self.root,
+            )
+        finally:
+            self.status_var.set("Ready")
+            self.progress_var.set(0)
 
     def _on_generation_cancelled(self) -> None:
         """Handle generation cancellation."""

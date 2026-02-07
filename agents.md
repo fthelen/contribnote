@@ -98,9 +98,34 @@ Input Excel → excel_parser → selection_engine → prompt_manager → openai_
 - Update request body structure
 - Handle new response fields in parsing and `generate_commentary()` / `generate_commentary_batch()`
 
+## Environment Bootstrap (Required)
+
+Use the repository virtual environment for all Python commands. Do not use global/system Python for this repo.
+
+```bash
+# From repository root, create venv if missing
+python3 -m venv .venv
+
+# Activate venv (macOS/Linux)
+source .venv/bin/activate
+
+# Upgrade packaging tools and install dependencies
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
+```
+
+If `requirements.txt` changes, rerun:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
 ## Testing
 
 ```bash
+# Ensure venv is active first
+source .venv/bin/activate
+
 # Run all tests
 python -m pytest tests/ -v
 

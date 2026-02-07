@@ -394,7 +394,7 @@ class TestParseExcelFile:
         assert result.securities[0].security_name == "Apple Inc."
 
     def test_parse_attribution_sector_top_level_and_total(self):
-        """Should parse only outline level 0 rows and parse total separately."""
+        """Should parse highest-level grouped rows and include total."""
         contrib_headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
         contrib_data_rows = [
             ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
@@ -406,16 +406,57 @@ class TestParseExcelFile:
             data_rows=contrib_data_rows
         )
 
-        attrib_headers = ["Port. Ending Weight", "Contrib. To Return Difference"]
+        attrib_headers = [
+            "Port. Ending Weight",
+            "Allocation Effect",
+            "Selection + Interaction Effect",
+            "Total Effect",
+        ]
         attrib_rows = {
-            8: {"category": "Sector Name"},
-            9: {"category": "Industry name", "Port. Ending Weight": 1.0, "Contrib. To Return Difference": 2.0},
-            10: {"category": "Security Name", "Port. Ending Weight": 3.0, "Contrib. To Return Difference": 4.0},
-            11: {"category": "Information Technology", "Port. Ending Weight": 5.0, "Contrib. To Return Difference": 6.0},
-            12: {"category": "Health Care", "Port. Ending Weight": 7.5, "Contrib. To Return Difference": 8.5},
-            14: {"category": "Total", "Port. Ending Weight": 12.5, "Contrib. To Return Difference": 14.5},
+            8: {
+                "category": "Information Technology",
+                "Port. Ending Weight": 5.0,
+                "Allocation Effect": 0.1,
+                "Selection + Interaction Effect": 0.2,
+                "Total Effect": 0.3,
+            },
+            9: {
+                "category": "Software",
+                "Port. Ending Weight": 3.0,
+                "Allocation Effect": 0.05,
+                "Selection + Interaction Effect": 0.05,
+                "Total Effect": 0.1,
+            },
+            10: {
+                "category": "Microsoft Corporation",
+                "Port. Ending Weight": 2.0,
+                "Allocation Effect": 0.03,
+                "Selection + Interaction Effect": 0.04,
+                "Total Effect": 0.07,
+            },
+            11: {
+                "category": "Health Care",
+                "Port. Ending Weight": 7.5,
+                "Allocation Effect": 0.02,
+                "Selection + Interaction Effect": -0.01,
+                "Total Effect": 0.01,
+            },
+            12: {
+                "category": "Pharmaceuticals",
+                "Port. Ending Weight": 2.5,
+                "Allocation Effect": 0.01,
+                "Selection + Interaction Effect": -0.02,
+                "Total Effect": -0.01,
+            },
+            14: {
+                "category": "Total",
+                "Port. Ending Weight": 12.5,
+                "Allocation Effect": 0.12,
+                "Selection + Interaction Effect": 0.19,
+                "Total Effect": 0.31,
+            },
         }
-        attrib_outlines = {9: 1, 10: 2}
+        attrib_outlines = {8: 0, 9: 1, 10: 2, 11: 0, 12: 1, 14: 0}
         attrib_ws = self._create_mock_attribution_worksheet(attrib_headers, attrib_rows, attrib_outlines)
 
         mock_wb = MagicMock()
@@ -431,14 +472,108 @@ class TestParseExcelFile:
             result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
 
         assert result.sector_attribution is not None
-        assert result.sector_attribution.category_header == "Sector Name"
+        assert result.sector_attribution.category_header == "Sector"
         assert [r.category for r in result.sector_attribution.top_level_rows] == [
             "Information Technology",
             "Health Care",
         ]
+        assert result.sector_attribution.metric_headers[-3:] == [
+            "Allocation Effect",
+            "Selection + Interaction Effect",
+            "Total Effect",
+        ]
         assert result.sector_attribution.total_row is not None
         assert result.sector_attribution.total_row.category == "Total"
         assert any("Missing optional attribution tab 'AttributionbyCountryMasterRisk'" in w for w in result.attribution_warnings)
+
+    def test_parse_attribution_country_retains_first_top_level_row(self):
+        """Should keep first top-level country row and exclude child security rows."""
+        contrib_headers = ["Security Name", "Ticker", "Port. Ending Weight", "Contribution To Return", "GICS"]
+        contrib_data_rows = [
+            ["Apple Inc.", "AAPL", 5.25, 0.15, "Information Technology"],
+            [None, None, None, None, None],
+        ]
+        contrib_ws = self._create_mock_worksheet(
+            period="12/31/2025 to 1/28/2026",
+            headers=contrib_headers,
+            data_rows=contrib_data_rows
+        )
+
+        country_headers = [
+            "Port. Beginning Weight",
+            "Port. Ending Weight",
+            "Allocation Effect",
+            "Selection + Interaction Effect",
+            "Total Effect",
+        ]
+        country_rows = {
+            8: {
+                "category": "United States",
+                "Port. Beginning Weight": 69.2,
+                "Port. Ending Weight": 67.6,
+                "Allocation Effect": -0.06,
+                "Selection + Interaction Effect": 0.18,
+                "Total Effect": 0.12,
+            },
+            9: {
+                "category": "Apple Inc.",
+                "Port. Beginning Weight": 6.9,
+                "Port. Ending Weight": 6.5,
+                "Allocation Effect": -0.01,
+                "Selection + Interaction Effect": 0.05,
+                "Total Effect": 0.04,
+            },
+            10: {
+                "category": "United Kingdom",
+                "Port. Beginning Weight": 5.1,
+                "Port. Ending Weight": 5.5,
+                "Allocation Effect": 0.02,
+                "Selection + Interaction Effect": 0.01,
+                "Total Effect": 0.03,
+            },
+            11: {
+                "category": "Shell plc",
+                "Port. Beginning Weight": 0.9,
+                "Port. Ending Weight": 1.0,
+                "Allocation Effect": 0.00,
+                "Selection + Interaction Effect": 0.01,
+                "Total Effect": 0.01,
+            },
+            12: {
+                "category": "Total",
+                "Port. Beginning Weight": 100,
+                "Port. Ending Weight": 100,
+                "Allocation Effect": 0.04,
+                "Selection + Interaction Effect": 0.19,
+                "Total Effect": 0.23,
+            },
+        }
+        country_outlines = {8: 0, 9: 1, 10: 0, 11: 1, 12: 0}
+        country_ws = self._create_mock_attribution_worksheet(
+            country_headers, country_rows, country_outlines
+        )
+
+        mock_wb = MagicMock()
+        mock_wb.sheetnames = ["ContributionMasterRisk", "AttributionbyCountryMasterRisk"]
+        mock_wb.__getitem__ = MagicMock(
+            side_effect=lambda name: {
+                "ContributionMasterRisk": contrib_ws,
+                "AttributionbyCountryMasterRisk": country_ws,
+            }[name]
+        )
+
+        with patch("src.excel_parser.openpyxl.load_workbook", return_value=mock_wb):
+            result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
+
+        assert result.country_attribution is not None
+        assert result.country_attribution.category_header == "Country"
+        assert [r.category for r in result.country_attribution.top_level_rows] == [
+            "United States",
+            "United Kingdom",
+        ]
+        assert "Allocation Effect" in result.country_attribution.metric_headers
+        assert result.country_attribution.total_row is not None
+        assert result.country_attribution.total_row.category == "Total"
 
     def test_parse_attribution_missing_sector_warns(self):
         """Should warn when expected sector attribution tab is missing."""
@@ -479,10 +614,14 @@ class TestParseExcelFile:
 
         attrib_headers = ["Port. Ending Weight"]
         attrib_rows = {
-            8: {"category": "Sector Name"},
-            9: {"category": "Information Technology", "Port. Ending Weight": 5.0},
+            8: {"category": "Information Technology", "Port. Ending Weight": 5.0},
+            9: {"category": "Software", "Port. Ending Weight": 3.0},
         }
-        attrib_ws = self._create_mock_attribution_worksheet(attrib_headers, attrib_rows, {})
+        attrib_ws = self._create_mock_attribution_worksheet(
+            attrib_headers,
+            attrib_rows,
+            {8: 0, 9: 1},
+        )
 
         mock_wb = MagicMock()
         mock_wb.sheetnames = ["ContributionMasterRisk", "AttributionbySector"]
@@ -497,6 +636,10 @@ class TestParseExcelFile:
             result = parse_excel_file(Path("TEST_12312025_01282026.xlsx"))
 
         assert result.sector_attribution is not None
+        assert result.sector_attribution.category_header == "Sector"
+        assert [r.category for r in result.sector_attribution.top_level_rows] == [
+            "Information Technology",
+        ]
         assert result.sector_attribution.total_row is None
         assert any("Total row not found" in w for w in result.attribution_warnings)
 
@@ -507,7 +650,7 @@ class TestAttributionMarkdownFormatting:
     def test_format_attribution_table_markdown(self):
         table = AttributionTable(
             sheet_name="AttributionbySector",
-            category_header="Sector Name",
+            category_header="Sector",
             metric_headers=["Port. Ending Weight", "Contrib. To Return Difference"],
             top_level_rows=[
                 AttributionRow(
@@ -530,9 +673,9 @@ class TestAttributionMarkdownFormatting:
         markdown = format_attribution_table_markdown(table, empty_message="No data")
 
         assert "### AttributionbySector" in markdown
-        assert "| Sector Name | Port. Ending Weight | Contrib. To Return Difference |" in markdown
+        assert "| Sector | Port. Ending Weight | Contrib. To Return Difference |" in markdown
         assert "| Information Technology | 5 | 1.25 |" in markdown
-        assert "Total:" in markdown
+        assert "Total:" not in markdown
         assert "| Total | 25 | 2 |" in markdown
 
     def test_format_attribution_table_markdown_empty(self):

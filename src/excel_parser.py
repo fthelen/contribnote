@@ -72,6 +72,12 @@ class AttributionTable:
         return bool(self.top_level_rows or self.total_row)
 
 
+ATTRIBUTION_CATEGORY_HEADERS = {
+    "AttributionbyCountryMasterRisk": "Country",
+    "AttributionbySector": "Sector",
+}
+
+
 def extract_portcode_from_filename(filename: str) -> str:
     """
     Extract PORTCODE from filename.
@@ -133,7 +139,7 @@ def _parse_attribution_sheet(
     file_path: Path,
     warnings: list[str]
 ) -> Optional[AttributionTable]:
-    """Parse an attribution sheet, keeping only top-level outline rows."""
+    """Parse an attribution sheet, keeping only highest-level grouped rows."""
     metric_headers = _parse_metric_headers(ws)
     if not metric_headers:
         warnings.append(
@@ -142,16 +148,11 @@ def _parse_attribution_sheet(
         )
         return None
 
-    category_header = ""
-    top_level_rows: list[AttributionRow] = []
+    category_header = ATTRIBUTION_CATEGORY_HEADERS.get(sheet_name, "Category")
+    candidate_rows: list[tuple[int, AttributionRow]] = []
     total_row: Optional[AttributionRow] = None
 
     for row_num in range(8, ws.max_row + 1):
-        row_dim = ws.row_dimensions.get(row_num)
-        outline_level = row_dim.outlineLevel if row_dim is not None else 0
-        if outline_level != 0:
-            continue
-
         category_raw = ws.cell(row=row_num, column=1).value
         if category_raw is None:
             continue
@@ -160,30 +161,35 @@ def _parse_attribution_sheet(
         if not category:
             continue
 
-        # First top-level row at/after row 8 is the category header row.
-        if not category_header:
-            category_header = category
-            continue
-
+        row_dim = ws.row_dimensions.get(row_num)
+        outline_level = row_dim.outlineLevel if row_dim is not None else 0
+        if outline_level is None:
+            outline_level = 0
         row = _build_attribution_row(ws, row_num, category, metric_headers)
 
         if category.lower() == "total":
             total_row = row
-            break
+            continue
 
-        top_level_rows.append(row)
+        candidate_rows.append((outline_level, row))
 
-    if not category_header:
-        warnings.append(
-            f"{file_path.name} [{sheet_name}]: No top-level category header found; "
-            "attribution data skipped."
-        )
-        return None
+    if candidate_rows:
+        top_level_outline = min(outline for outline, _ in candidate_rows)
+        top_level_rows = [
+            row for outline, row in candidate_rows if outline == top_level_outline
+        ]
+    else:
+        top_level_rows = []
 
     if total_row is None:
         warnings.append(
             f"{file_path.name} [{sheet_name}]: Total row not found; parsed top-level "
             "rows without total."
+        )
+
+    if not top_level_rows:
+        warnings.append(
+            f"{file_path.name} [{sheet_name}]: No top-level attribution rows were found."
         )
 
     table = AttributionTable(
@@ -195,9 +201,6 @@ def _parse_attribution_sheet(
     )
 
     if not table.has_data():
-        warnings.append(
-            f"{file_path.name} [{sheet_name}]: No top-level attribution rows were found."
-        )
         return None
 
     return table
@@ -219,7 +222,7 @@ def format_attribution_table_markdown(
     """
     Format an attribution table for prompt injection as markdown.
 
-    Includes top-level rows and a Total subsection when available.
+    Includes top-level rows with an optional Total row at the bottom.
     """
     if table is None or not table.has_data():
         return empty_message
@@ -239,10 +242,6 @@ def format_attribution_table_markdown(
         lines.append("| " + " | ".join(values) + " |")
 
     if table.total_row is not None:
-        lines.append("")
-        lines.append("Total:")
-        lines.append("| " + " | ".join(headers) + " |")
-        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
         total_values = [table.total_row.category] + [
             _format_markdown_metric(table.total_row.metrics.get(header, ""))
             for header in table.metric_headers

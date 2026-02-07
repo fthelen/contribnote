@@ -60,8 +60,9 @@ python run_app.py
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         GUI (gui.py)                            │
-│  • File selection      • Settings modal    • Progress tracking  │
-│  • Output folder       • Prompt editor     • Config persistence │
+│  • File selection      • API Settings dialog    • Progress tracking  │
+│  • Output folder       • Contribution Settings dialog               │
+│                         • Attribution Settings dialog   • Config persistence │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -103,12 +104,18 @@ Parses FactSet Excel exports with strict layout assumptions.
 **Key Classes:**
 - `SecurityRow` — Dataclass for a single security's data
 - `PortfolioData` — Container for portfolio metadata and securities
-- `AttributionRow` / `AttributionTable` — Top-level attribution rows and totals for sector/country tabs
+- `AttributionRow` / `AttributionTable` — Highest-level attribution rows and totals for sector/country tabs
 
 **Key Functions:**
 - `parse_factset_file(path)` → `PortfolioData`
 - `extract_portcode(filename)` → `str`
 - `format_attribution_table_markdown(table, empty_message)` → `str` for prompt injection
+
+**Attribution Parsing Rules:**
+- Metric headers are read from row 7 (column B onward), including effects columns.
+- Top-level attribution rows are selected by taking the minimum outline level among non-empty, non-`Total` rows in column A.
+- The first-column markdown header is normalized by sheet name (`Country` for `AttributionbyCountryMasterRisk`, `Sector` for `AttributionbySector`, otherwise `Category`).
+- Prompt injection formatting is a single markdown table per attribution sheet, with `Total` appended as the final row when present.
 
 **Layout Constants:**
 ```python
@@ -153,7 +160,7 @@ Manages prompt templates with variable interpolation.
 - `set_preferred_sources(sources)` → `None`
 - `get_default_preferred_sources()` → `list[str]`
 
-**Attribution Workflow Prompting:**
+**Attribution Overview Prompting:**
 - `AttributionPromptConfig` — Separate config for attribution workflow
 - `AttributionPromptManager.build_prompt(portcode, period, sector_attrib, country_attrib, ...)`
 
@@ -218,9 +225,9 @@ Full tkinter GUI implementation.
 
 **Key Classes:**
 - `CommentaryGeneratorApp` — Main application window
-- `SettingsModal` — API key configuration and citations dialog
-- `PromptEditorModal` — Prompt editor with tabs
-- `AttributionWorkflowModal` — Separate attribution prompt/model editor
+- `SettingsModal` — API key configuration dialog
+- `PromptEditorModal` — Contribution settings prompt/model editor
+- `AttributionWorkflowModal` — Attribution settings prompt/model editor
 
 **Config Persistence:**
 - Location: `~/.contribnote/config.json` (macOS/Linux) or `%APPDATA%/ContribNote/config.json` (Windows)

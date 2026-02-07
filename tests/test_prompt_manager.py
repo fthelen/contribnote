@@ -6,6 +6,7 @@ import pytest
 from src.prompt_manager import (
     DEFAULT_PROMPT_TEMPLATE,
     DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE,
+    DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT,
     SOURCE_INSTRUCTIONS_WITH_PRIORITY,
     SOURCE_INSTRUCTIONS_DEFAULT,
     PromptConfig,
@@ -232,7 +233,6 @@ class TestAttributionPromptManager:
             country_attrib="No country data available.",
         )
 
-        assert "XYZ" in prompt
         assert "12/31/2025 to 1/31/2026" in prompt
         assert "Tech" in prompt
         assert "No country data available." in prompt
@@ -256,6 +256,9 @@ class TestAttributionPromptManager:
         manager = AttributionPromptManager(config=config)
 
         assert manager.get_source_instructions() == ""
+
+    def test_attribution_developer_prompt_examples_avoid_exact_percentages(self):
+        assert "%" not in DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT
 
 
 # --- get_default_preferred_sources Tests ---

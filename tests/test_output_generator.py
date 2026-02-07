@@ -283,6 +283,36 @@ class TestCreateOutputWorkbook:
             assert "PORT2" in wb.sheetnames
             wb.close()
 
+    def test_duplicate_ticker_across_portfolios_stays_isolated_by_sheet(self):
+        """Duplicate tickers in different portfolios should not cross-populate output rows."""
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_folder = Path(tmpdir)
+
+            selections = [
+                make_selection_result([make_ranked_security("AAPL", 0.10)], portcode="XYZ"),
+                make_selection_result([make_ranked_security("AAPL", 0.20)], portcode="ONE"),
+            ]
+            commentary = {
+                "XYZ": {"AAPL": make_commentary_result("AAPL", "XYZ commentary.")},
+                "ONE": {"AAPL": make_commentary_result("AAPL", "ONE commentary.")},
+            }
+
+            result_path = create_output_workbook(selections, commentary, output_folder)
+
+            wb = openpyxl.load_workbook(result_path)
+            ws_xyz = wb["XYZ"]
+            ws_one = wb["ONE"]
+
+            assert ws_xyz["A2"].value == "AAPL"
+            assert ws_xyz["G2"].value == "XYZ commentary."
+            assert ws_one["A2"].value == "AAPL"
+            assert ws_one["G2"].value == "ONE commentary."
+            assert ws_xyz["G2"].value != "ERROR: No commentary generated"
+            assert ws_one["G2"].value != "ERROR: No commentary generated"
+            wb.close()
+
     def test_creates_output_folder_if_needed(self):
         """Should create output folder if it doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
