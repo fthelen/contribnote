@@ -278,6 +278,8 @@ class ToolTip:
             try:
                 self.tip_window.destroy()
             except tk.TclError:
+                # The tooltip window may already have been destroyed or the Tcl interpreter
+                # may be shutting down; ignore errors during best-effort cleanup.
                 pass
             self.tip_window = None
 
