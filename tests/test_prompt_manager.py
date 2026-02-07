@@ -232,7 +232,6 @@ class TestAttributionPromptManager:
             country_attrib="No country data available.",
         )
 
-        assert "XYZ" in prompt
         assert "12/31/2025 to 1/31/2026" in prompt
         assert "Tech" in prompt
         assert "No country data available." in prompt

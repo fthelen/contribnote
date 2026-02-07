@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -119,6 +119,92 @@ def validate_and_clean_domains(domains_str: str) -> tuple[list[str], list[str]]:
         valid_domains.append(cleaned)
     
     return valid_domains, errors
+
+
+def _organize_commentary_results_by_request(
+    requests: list[dict[str, str]],
+    results: list[CommentaryResult],
+) -> tuple[dict[str, dict[str, CommentaryResult]], dict[str, list[str]]]:
+    """
+    Organize commentary results by originating request order.
+
+    Args:
+        requests: Commentary requests in submission order.
+        results: Commentary results returned in corresponding order.
+
+    Returns:
+        Tuple containing:
+            - Nested commentary dict keyed by portcode then ticker
+            - Error dict keyed as "PORTCODE|TICKER"
+    """
+    commentary_results: dict[str, dict[str, CommentaryResult]] = {}
+    errors: dict[str, list[str]] = {}
+
+    for request, result in zip(requests, results):
+        portcode = request.get("portcode", "unknown")
+        ticker = request.get("ticker", result.ticker)
+
+        if portcode not in commentary_results:
+            commentary_results[portcode] = {}
+        commentary_results[portcode][ticker] = result
+
+        if not result.success:
+            key = f"{portcode}|{ticker}"
+            errors.setdefault(key, []).append(result.error_message)
+
+    return commentary_results, errors
+
+
+def _compute_overall_progress(
+    completed: int,
+    offset: int,
+    overall_total: int
+) -> tuple[int, int]:
+    """
+    Translate phase-local progress into run-level progress.
+
+    Args:
+        completed: Completed count in the current phase.
+        offset: Number of items completed before this phase.
+        overall_total: Total requests across all phases in this run.
+
+    Returns:
+        Tuple of (overall_completed, overall_total).
+    """
+    if overall_total <= 0:
+        return 0, 0
+
+    normalized_completed = max(0, completed)
+    overall_completed = min(overall_total, offset + normalized_completed)
+    return overall_completed, overall_total
+
+
+def _make_overall_progress_callback(
+    update_progress_fn: Callable[[str, int, int], None],
+    offset: int,
+    overall_total: int
+) -> Callable[[str, int, int], None]:
+    """
+    Create a phase progress callback that reports run-level totals.
+
+    Args:
+        update_progress_fn: App progress callback target.
+        offset: Number of already-completed requests before this phase.
+        overall_total: Total requests in the run.
+
+    Returns:
+        Callback compatible with OpenAIClient progress callback signature.
+    """
+    def _callback(item_id: str, completed: int, _phase_total: int) -> None:
+        overall_completed, total = _compute_overall_progress(
+            completed=completed,
+            offset=offset,
+            overall_total=overall_total
+        )
+        if total > 0:
+            update_progress_fn(item_id, overall_completed, total)
+
+    return _callback
 
 
 class SettingsModal:
@@ -846,6 +932,7 @@ class CommentaryGeneratorApp:
         self._cancel_requested: bool = False
         self._exit_after_cancel: bool = False
         self._progress_queue: queue.SimpleQueue[tuple[str, int, int]] = queue.SimpleQueue()
+        self._ui_callback_queue: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
 
         # Prompt template and system prompt variables
         self.prompt_text_content: str = DEFAULT_PROMPT_TEMPLATE
@@ -1325,8 +1412,12 @@ class CommentaryGeneratorApp:
         """Enqueue progress updates from worker threads."""
         self._progress_queue.put((ticker, completed, total))
 
+    def _enqueue_ui_callback(self, callback: Callable[[], None]) -> None:
+        """Queue a UI callback to run on the Tk main thread."""
+        self._ui_callback_queue.put(callback)
+
     def _schedule_progress_queue_drain(self) -> None:
-        """Drain queued progress updates on the Tk main thread."""
+        """Drain queued progress/UI updates on the Tk main thread."""
         latest: Optional[tuple[str, int, int]] = None
         while True:
             try:
@@ -1339,6 +1430,16 @@ class CommentaryGeneratorApp:
             progress = (completed / total) * 100 if total > 0 else 0
             self.progress_var.set(progress)
             self.status_var.set(f"Processing: {ticker} ({completed}/{total})")
+
+        while True:
+            try:
+                callback = self._ui_callback_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback()
+            except Exception as callback_error:
+                print(f"UI callback error: {callback_error}")
 
         self.root.after(100, self._schedule_progress_queue_drain)
     
@@ -1395,15 +1496,15 @@ class CommentaryGeneratorApp:
             result = loop.run_until_complete(self._async_generate())
             
             # Update UI on main thread
-            self.root.after(0, lambda: self._on_generation_complete(result))
+            self._enqueue_ui_callback(lambda: self._on_generation_complete(result))
             
         except asyncio.CancelledError:
-            self.root.after(0, self._on_generation_cancelled)
+            self._enqueue_ui_callback(self._on_generation_cancelled)
         except Exception as e:
-            self.root.after(0, lambda: self._on_generation_error(str(e)))
+            self._enqueue_ui_callback(lambda: self._on_generation_error(str(e)))
         finally:
             self.is_running = False
-            self.root.after(0, lambda: self.run_btn.configure(state="normal"))
+            self._enqueue_ui_callback(lambda: self.run_btn.configure(state="normal"))
             self._generation_loop = None
             self._cancel_event = None
     
@@ -1414,7 +1515,7 @@ class CommentaryGeneratorApp:
         attribution_overview_results: Optional[dict[str, AttributionOverviewResult]] = None
         
         # Update status
-        self.root.after(0, lambda: self.status_var.set("Parsing Excel files..."))
+        self._enqueue_ui_callback(lambda: self.status_var.set("Parsing Excel files..."))
         
         # Parse input files
         portfolios = parse_multiple_files(self.input_files)
@@ -1444,17 +1545,8 @@ class CommentaryGeneratorApp:
         )
         prompt_manager = PromptManager(prompt_config)
         
-        # Set up OpenAI client for security-level commentary
-        commentary_client = OpenAIClient(
-            api_key=self.api_key.strip(),
-            progress_callback=self.update_progress,
-            developer_prompt=self.developer_prompt_content,
-            model=self.model_id
-        )
-        
         # Build all API requests
         all_requests = []
-        request_mapping = {}  # Map ticker to (portcode, period)
         
         for selection in selections:
             for ranked_sec in selection.ranked_securities:
@@ -1469,43 +1561,11 @@ class CommentaryGeneratorApp:
                     "prompt": prompt,
                     "portcode": selection.portcode
                 })
-                request_mapping[ranked_sec.ticker] = selection.portcode
-        
-        # Update status
-        total = len(all_requests)
-        self.root.after(0, lambda: self.status_var.set(f"Generating commentary for {total} securities..."))
-        
-        # Generate commentary (batch)
-        results = await commentary_client.generate_commentary_batch(
-            all_requests,
-            use_web_search=True,
-            thinking_level=self.thinking_level,
-            text_verbosity=self.text_verbosity,
-            require_citations=self.require_citations,
-            cancel_event=self._cancel_event
-        )
 
-        if self._cancel_event and self._cancel_event.is_set():
-            raise asyncio.CancelledError()
-        
-        # Organize results by portfolio
-        commentary_results: dict[str, dict[str, CommentaryResult]] = {}
-        for result in results:
-            portcode = request_mapping.get(result.ticker, "unknown")
-            if portcode not in commentary_results:
-                commentary_results[portcode] = {}
-            commentary_results[portcode][result.ticker] = result
-            
-            # Track errors
-            if not result.success:
-                key = f"{portcode}|{result.ticker}"
-                if key not in errors:
-                    errors[key] = []
-                errors[key].append(result.error_message)
-
+        # Build attribution requests up front so progress can track all requests end-to-end.
+        attribution_requests: list[dict[str, str]] = []
         if self.run_attribution_overview:
             attribution_overview_results = {}
-            self.root.after(0, lambda: self.status_var.set("Generating attribution overviews..."))
 
             attribution_prompt_config = AttributionPromptConfig(
                 template=self.attribution_prompt_text_content,
@@ -1514,8 +1574,6 @@ class CommentaryGeneratorApp:
                 prioritize_sources=self.prioritize_sources,
             )
             attribution_prompt_manager = AttributionPromptManager(attribution_prompt_config)
-
-            attribution_requests: list[dict[str, str]] = []
 
             for portfolio in portfolios:
                 has_sector_data = (
@@ -1565,10 +1623,60 @@ class CommentaryGeneratorApp:
                     }
                 )
 
+        commentary_total = len(all_requests)
+        attribution_total = len(attribution_requests)
+        overall_total = commentary_total + attribution_total
+
+        # Set up OpenAI client for security-level commentary with run-level progress totals.
+        commentary_progress_callback = _make_overall_progress_callback(
+            update_progress_fn=self.update_progress,
+            offset=0,
+            overall_total=overall_total,
+        )
+        commentary_client = OpenAIClient(
+            api_key=self.api_key.strip(),
+            progress_callback=commentary_progress_callback,
+            developer_prompt=self.developer_prompt_content,
+            model=self.model_id
+        )
+        
+        # Update status
+        self._enqueue_ui_callback(
+            lambda: self.status_var.set(f"Generating commentary for {commentary_total} securities...")
+        )
+        
+        # Generate commentary (batch)
+        results = await commentary_client.generate_commentary_batch(
+            all_requests,
+            use_web_search=True,
+            thinking_level=self.thinking_level,
+            text_verbosity=self.text_verbosity,
+            require_citations=self.require_citations,
+            cancel_event=self._cancel_event
+        )
+
+        if self._cancel_event and self._cancel_event.is_set():
+            raise asyncio.CancelledError()
+        
+        # Organize results by originating request order to avoid ticker collisions
+        commentary_results, commentary_errors = _organize_commentary_results_by_request(
+            all_requests,
+            results
+        )
+        for key, error_list in commentary_errors.items():
+            errors.setdefault(key, []).extend(error_list)
+
+        if self.run_attribution_overview:
+            self._enqueue_ui_callback(lambda: self.status_var.set("Generating attribution overviews..."))
             if attribution_requests:
+                attribution_progress_callback = _make_overall_progress_callback(
+                    update_progress_fn=self.update_progress,
+                    offset=commentary_total,
+                    overall_total=overall_total,
+                )
                 attribution_client = OpenAIClient(
                     api_key=self.api_key.strip(),
-                    progress_callback=self.update_progress,
+                    progress_callback=attribution_progress_callback,
                     developer_prompt=self.attribution_developer_prompt_content,
                     model=self.attribution_model_id,
                 )
@@ -1593,7 +1701,7 @@ class CommentaryGeneratorApp:
                         ).append(overview_result.error_message)
         
         # Update status
-        self.root.after(0, lambda: self.status_var.set("Creating output workbook..."))
+        self._enqueue_ui_callback(lambda: self.status_var.set("Creating output workbook..."))
         
         # Create output workbook (output_folder validated in validate_inputs)
         assert self.output_folder is not None
@@ -1618,7 +1726,10 @@ class CommentaryGeneratorApp:
         return {
             "output_path": output_path,
             "log_path": log_path,
-            "total_securities": total,
+            "total_securities": commentary_total,
+            "total_commentary_requests": commentary_total,
+            "total_attribution_requests": attribution_total,
+            "total_requests": overall_total,
             "errors": len(errors),
             "duration": (end_time - start_time).total_seconds()
         }
@@ -1647,23 +1758,37 @@ class CommentaryGeneratorApp:
     
     def _on_generation_complete(self, result: dict):
         """Handle successful generation completion."""
-        # Save configuration after successful generation
-        self.save_config()
-        
         self.progress_var.set(100)
         self.status_var.set("Complete!")
-        
-        message = (
-            f"Commentary generation complete!\n\n"
-            f"Securities processed: {result['total_securities']}\n"
-            f"Errors: {result['errors']}\n"
-            f"Duration: {result['duration']:.1f} seconds\n\n"
-            f"Output file:\n{result['output_path']}\n\n"
-            f"Log file:\n{result['log_path']}"
-        )
-        messagebox.showinfo("Success", message)
-        self.status_var.set("Ready")
-        self.progress_var.set(0)
+
+        commentary_processed = int(result.get("total_commentary_requests", result.get("total_securities", 0)))
+        attribution_processed = int(result.get("total_attribution_requests", 0))
+        total_processed = int(result.get("total_requests", commentary_processed + attribution_processed))
+
+        try:
+            # Save configuration after successful generation
+            self.save_config()
+
+            message = (
+                f"Commentary generation complete!\n\n"
+                f"Commentary requests processed: {commentary_processed}\n"
+                f"Attribution requests processed: {attribution_processed}\n"
+                f"Total requests processed: {total_processed}\n"
+                f"Errors: {result['errors']}\n"
+                f"Duration: {result['duration']:.1f} seconds\n\n"
+                f"Output file:\n{result['output_path']}\n\n"
+                f"Log file:\n{result['log_path']}"
+            )
+            messagebox.showinfo("Success", message, parent=self.root)
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Generation finished but failed to display completion details:\n\n{e}",
+                parent=self.root,
+            )
+        finally:
+            self.status_var.set("Ready")
+            self.progress_var.set(0)
 
     def _on_generation_cancelled(self) -> None:
         """Handle generation cancellation."""

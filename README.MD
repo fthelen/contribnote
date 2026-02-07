@@ -124,7 +124,8 @@ Optional attribution sheets for overview workflow:
 - `AttributionbySector` (expected for attribution workflow)
 - `AttributionbyCountryMasterRisk` (optional)
 
-Attribution parsing keeps only top-level grouped rows (outline level 0) plus the `Total` row.
+Attribution parsing keeps only the highest-level grouped rows (minimum outline level present in the sheet) plus the `Total` row.
+Attribution prompt injection uses one markdown table per sheet with `Total` as the final row when present.
 
 ## Documentation
 

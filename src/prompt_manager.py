@@ -29,19 +29,25 @@ SOURCE_INSTRUCTIONS_WITH_PRIORITY = """Prioritize information from these reputab
 
 SOURCE_INSTRUCTIONS_DEFAULT = """Include citations from reputable financial news sources for key facts."""
 
-DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = """You are preparing a portfolio-level attribution overview for {portcode} covering period {period}.
+DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = """Write a short portfolio commentary for the period {period}. If the country attribution is not provided, assume the United States is the focus country. Research based on the attribution details to fill in market backdrop.
 
-Use the supplied attribution data exactly as provided.
+{source_instructions}
 
-Sector attribution data:
-{sector_attrib}
-
-Country attribution data:
+Country Attribution:
 {country_attrib}
 
-Write one concise paragraph highlighting the most material contributors to attribution and key differences vs benchmark.
+Sector Attribution:
+{sector_attrib}
 
-{source_instructions}"""
+Requirements:
+    * 9-12 sentences total.
+    * Plain language; avoid jargon.
+    * Prefer qualitative descriptions over exact numbers; do not include exact returns or precise performance figures unless they are unavoidable.
+    * Do not invent portfolio returns, benchmark returns, or sector performance figures.
+    * Add citations for any sentence that references external events, sector/country leadership, or benchmark direction.
+
+Output:
+[State the period and scope]. [Write 1-2  sentences to report developments that influenced markets and its general directional effect]. [2-sentence  identifying the strongest and/or weakest sector(s) or country relevant to the portfolio for the period]. [State whether the portfolio  ended higher/lower/flat/modestly and state that if it outperformed/underperformed/was broadly in line versus the benchmark]. [Explain the main drivers of relative performance in terms of attribution effects on a sector and/or country basis]."""
 
 DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = (
     "Write a concise, factual attribution overview at the portfolio level. "

@@ -103,12 +103,18 @@ Parses FactSet Excel exports with strict layout assumptions.
 **Key Classes:**
 - `SecurityRow` — Dataclass for a single security's data
 - `PortfolioData` — Container for portfolio metadata and securities
-- `AttributionRow` / `AttributionTable` — Top-level attribution rows and totals for sector/country tabs
+- `AttributionRow` / `AttributionTable` — Highest-level attribution rows and totals for sector/country tabs
 
 **Key Functions:**
 - `parse_factset_file(path)` → `PortfolioData`
 - `extract_portcode(filename)` → `str`
 - `format_attribution_table_markdown(table, empty_message)` → `str` for prompt injection
+
+**Attribution Parsing Rules:**
+- Metric headers are read from row 7 (column B onward), including effects columns.
+- Top-level attribution rows are selected by taking the minimum outline level among non-empty, non-`Total` rows in column A.
+- The first-column markdown header is normalized by sheet name (`Country` for `AttributionbyCountryMasterRisk`, `Sector` for `AttributionbySector`, otherwise `Category`).
+- Prompt injection formatting is a single markdown table per attribution sheet, with `Total` appended as the final row when present.
 
 **Layout Constants:**
 ```python
