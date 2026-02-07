@@ -980,9 +980,6 @@ class CommentaryGeneratorApp:
         try:
             config_dir = self._get_config_path()
             config_dir.mkdir(parents=True, exist_ok=True)
-
-            if hasattr(self, "run_attribution_var"):
-                self.run_attribution_overview = bool(self.run_attribution_var.get())
             
             config = {
                 "prompt_template": self.prompt_text_content,
