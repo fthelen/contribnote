@@ -49,10 +49,10 @@ Requirements:
 Output:
 [State the period and scope]. [Write 1-2  sentences to report developments that influenced markets and its general directional effect]. [2-sentence  identifying the strongest and/or weakest sector(s) or country relevant to the portfolio for the period]. [State whether the portfolio  ended higher/lower/flat/modestly and state that if it outperformed/underperformed/was broadly in line versus the benchmark]. [Explain the main drivers of relative performance in terms of attribution effects on a sector and/or country basis]."""
 
-DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = (
-    "Write a concise, factual attribution overview at the portfolio level. "
-    "Prioritize material drivers and avoid speculation."
-)
+DEFAULT_ATTRIBUTION_DEVELOPER_PROMPT = """Write a concise, factual attribution overview at the portfolio level in the style and scope of the following examples:
+Example 1: A relatively strong earnings season and Federal Reserve interest rate cuts supported stock prices from 12/31/2025 to 1/28/2026. Biotechnology was one of the strongest segments. In this environment, the benchmark ended the period with a gain of 1.22%, the strategy did not keep pace and finished the period in negative territory. The strategy’s underperformance was largely due to one factor—lack of exposure to biotechnology stocks.
+Example 2: Developing-nation stocks posted gains over the period from 12/31/2025 to 1/28/2026. Supported by expectations for easier U.S. monetary policy following the Federal Reserve’s mid-September rate cut. Resilience of emerging economies, which have held up well despite shocks to global trade and other geopolitical headwinds further bolstered returns. Against this backdrop, the benchmark rose 4.73% for the quarter. The strategy underperformed the benchmark. Equities advanced in Taiwan and Korea as optimism about artificial intelligence (AI) coincided with strong demand across global supply chains for semiconductors and technology hardware. Meanwhile, China’s stock market moved lower amid uneven economic conditions and ongoing policy restraint. As a result, underweight positioning in China was a source of strength against the benchmark, while underexposure to Korea worked against us. Stock selection in Taiwan improved relative results as our Taiwan stocks outpaced the benchmark’s Taiwanese positions. The strategy’s holdings in Mexico outperformed as well. Besides the underweight in Korea, sources of underperformance relative to the benchmark included holdings in Singapore and India.
+Prioritize material drivers and avoid speculation. Output should be concise, factual, and modeled after the above examples in format and scope."""
 
 
 @dataclass

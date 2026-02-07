@@ -43,10 +43,9 @@ python run_app.py
    - **Holdings Mode**: Select "Top/Bottom N" or "All Holdings"
    - **Top/Bottom Count**: Choose 5 or 10 (only for Top/Bottom mode)
    - **Run Attribution Overview**: Optional portfolio-level overview workflow
-   - **Require Citations**: Check to require source citations
-   - **Preferred Sources**: Edit the list of preferred financial news domains
-5. **Customize prompt** (optional): Edit the prompt template if needed
-6. **Configure Attribution Workflow** (optional): Use the dedicated button to set a separate attribution prompt/model
+   - **Citation Preferences**: Set Require Citations, Prioritize Sources, and preferred domains inline
+5. **Customize contribution settings** (optional): Use **Contribution Settings** for prompt/model controls
+6. **Configure attribution settings** (optional): Use **Attribution Settings** for a separate attribution prompt/model
 7. **Click "Generate Commentary"** to start
 
 ## Output
@@ -66,7 +65,7 @@ Control how much reasoning the AI uses when generating commentary:
 - **High**: Most thorough reasoning, slower
 - **XHigh**: Maximum reasoning, slowest
 
-Access via the **Prompts & Sources** button → **Thinking Level** dropdown.
+Access via the **Contribution Settings** button → **Thinking Level** dropdown.
 
 ### Text Verbosity Configuration
 
@@ -75,7 +74,7 @@ Control response length and detail:
 - **Medium**: More detail
 - **High**: Most detail
 
-Access via the **Prompts & Sources** button → **Text Verbosity** dropdown.
+Access via the **Contribution Settings** button → **Text Verbosity** dropdown.
 
 ### Dual Prompt System
 
@@ -83,16 +82,16 @@ The application supports two types of prompts:
 - **User Prompt**: The main template with variables (`{ticker}`, `{security_name}`, `{period}`, `{source_instructions}`)
 - **System Prompt**: Developer-level instructions that guide the AI's behavior
 
-Both are editable in the **Prompts & Sources** modal.
+Both are editable in the **Contribution Settings** modal.
 
-### Attribution Workflow (Optional)
+### Attribution Settings (Optional)
 
 When **Run Attribution Overview** is enabled, the app runs a separate portfolio-level prompt before writing output.
 
 - Uses attribution tabs from the same input workbook:
   - `AttributionbySector` (expected)
   - `AttributionbyCountryMasterRisk` (optional)
-- Uses separate prompt/model/reasoning/verbosity settings in the **Attribution Workflow** modal
+- Uses separate prompt/model/reasoning/verbosity settings in the **Attribution Settings** modal
 - Injects parsed top-level attribution data into attribution prompt variables:
   - `{sector_attrib}`
   - `{country_attrib}`

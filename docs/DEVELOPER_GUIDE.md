@@ -60,8 +60,8 @@ python run_app.py
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         GUI (gui.py)                            │
-│  • File selection      • Settings modal    • Progress tracking  │
-│  • Output folder       • Prompt editor     • Config persistence │
+│  • File selection      • API modal         • Progress tracking  │
+│  • Output folder       • Settings modals   • Config persistence │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -159,7 +159,7 @@ Manages prompt templates with variable interpolation.
 - `set_preferred_sources(sources)` → `None`
 - `get_default_preferred_sources()` → `list[str]`
 
-**Attribution Workflow Prompting:**
+**Attribution Overview Prompting:**
 - `AttributionPromptConfig` — Separate config for attribution workflow
 - `AttributionPromptManager.build_prompt(portcode, period, sector_attrib, country_attrib, ...)`
 
@@ -224,9 +224,9 @@ Full tkinter GUI implementation.
 
 **Key Classes:**
 - `CommentaryGeneratorApp` — Main application window
-- `SettingsModal` — API key configuration and citations dialog
-- `PromptEditorModal` — Prompt editor with tabs
-- `AttributionWorkflowModal` — Separate attribution prompt/model editor
+- `SettingsModal` — API key configuration dialog
+- `PromptEditorModal` — Contribution settings prompt/model editor
+- `AttributionWorkflowModal` — Attribution settings prompt/model editor
 
 **Config Persistence:**
 - Location: `~/.contribnote/config.json` (macOS/Linux) or `%APPDATA%/ContribNote/config.json` (Windows)

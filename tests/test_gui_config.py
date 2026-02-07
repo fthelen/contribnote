@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("tkinter")
 
+import src.gui as gui_module
 from src.gui import CommentaryGeneratorApp, DEFAULT_MODEL
 
 
@@ -50,6 +51,21 @@ def make_app_stub(config_dir: Path) -> CommentaryGeneratorApp:
     app._migrate_api_key_from_config = lambda _value: None
     app._get_config_path = lambda: config_dir
     app._get_config_file = lambda: config_dir / "config.json"
+    return app
+
+
+def make_validation_app_stub(tmp_path: Path, sources: str) -> CommentaryGeneratorApp:
+    """Create a minimal app stub for validate_inputs tests."""
+    app = CommentaryGeneratorApp.__new__(CommentaryGeneratorApp)
+    app.api_key = "test-key"
+    app.input_files = [Path("input.xlsx")]
+    app.output_folder = tmp_path
+    app.sources_var = DummyVar(sources)
+    app.require_citations = True
+    app.prioritize_sources = True
+    app.require_citations_var = DummyVar(True)
+    app.prioritize_sources_var = DummyVar(True)
+    app.global_sources_error_var = DummyVar("")
     return app
 
 
@@ -114,3 +130,32 @@ def test_load_config_reads_attribution_keys_and_updates_checkbox_var(tmp_path):
     assert app.attribution_thinking_level == "xhigh"
     assert app.attribution_text_verbosity == "high"
     assert app.attribution_model_id == DEFAULT_MODEL
+
+
+def test_validate_inputs_rejects_invalid_preferred_sources(tmp_path, monkeypatch):
+    app = make_validation_app_stub(tmp_path, "invalid_domain")
+    error_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gui_module.messagebox,
+        "showerror",
+        lambda title, message: error_calls.append((title, message)),
+    )
+
+    assert app.validate_inputs() is False
+    assert error_calls
+    assert app.global_sources_error_var.get().startswith("Errors:")
+
+
+def test_validate_inputs_normalizes_preferred_sources(tmp_path, monkeypatch):
+    app = make_validation_app_stub(tmp_path, "https://www.reuters.com/, bloomberg.com")
+    error_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gui_module.messagebox,
+        "showerror",
+        lambda title, message: error_calls.append((title, message)),
+    )
+
+    assert app.validate_inputs() is True
+    assert app.sources_var.get() == "reuters.com, bloomberg.com"
+    assert app.global_sources_error_var.get() == ""
+    assert error_calls == []
