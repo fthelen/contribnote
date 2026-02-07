@@ -9,7 +9,9 @@ import pytest
 pytest.importorskip("tkinter")
 
 import src.gui as gui_module
-from src.gui import CommentaryGeneratorApp, DEFAULT_MODEL
+
+CommentaryGeneratorApp = gui_module.CommentaryGeneratorApp
+DEFAULT_MODEL = gui_module.DEFAULT_MODEL
 
 
 class DummyVar:

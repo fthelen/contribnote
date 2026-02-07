@@ -218,23 +218,43 @@ class ToolTip:
         self.widget.bind("<Enter>", self._on_enter, add="+")
         self.widget.bind("<Leave>", self._on_leave, add="+")
         self.widget.bind("<ButtonPress>", self._on_leave, add="+")
+        self.widget.bind("<Destroy>", self._on_destroy, add="+")
 
     def _on_enter(self, _event=None):
         if self._after_id is None:
             self._after_id = self.widget.after(500, self._show)
 
     def _on_leave(self, _event=None):
-        if self._after_id is not None:
-            self.widget.after_cancel(self._after_id)
-            self._after_id = None
+        self._cancel_pending_show()
         self._hide()
+
+    def _on_destroy(self, _event=None):
+        self._cancel_pending_show()
+        self._hide()
+
+    def _cancel_pending_show(self):
+        if self._after_id is None:
+            return
+        try:
+            self.widget.after_cancel(self._after_id)
+        except tk.TclError:
+            pass
+        finally:
+            self._after_id = None
 
     def _show(self):
         if self.tip_window is not None:
             return
+        try:
+            if not self.widget.winfo_exists():
+                self._after_id = None
+                return
+            x = self.widget.winfo_rootx() + 12
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        except tk.TclError:
+            self._after_id = None
+            return
         self._after_id = None
-        x = self.widget.winfo_rootx() + 12
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -255,7 +275,10 @@ class ToolTip:
 
     def _hide(self):
         if self.tip_window is not None:
-            self.tip_window.destroy()
+            try:
+                self.tip_window.destroy()
+            except tk.TclError:
+                pass
             self.tip_window = None
 
 

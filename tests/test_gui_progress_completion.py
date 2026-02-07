@@ -14,14 +14,13 @@ pytest.importorskip("tkinter")
 
 import src.gui as gui_module
 from src.excel_parser import AttributionRow, AttributionTable
-from src.gui import (
-    CommentaryGeneratorApp,
-    DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE,
-    DEFAULT_MODEL,
-    DEFAULT_PROMPT_TEMPLATE,
-    _make_overall_progress_callback,
-)
 from src.openai_client import AttributionOverviewResult, Citation, CommentaryResult
+
+CommentaryGeneratorApp = gui_module.CommentaryGeneratorApp
+DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE = gui_module.DEFAULT_ATTRIBUTION_PROMPT_TEMPLATE
+DEFAULT_MODEL = gui_module.DEFAULT_MODEL
+DEFAULT_PROMPT_TEMPLATE = gui_module.DEFAULT_PROMPT_TEMPLATE
+_make_overall_progress_callback = gui_module._make_overall_progress_callback
 
 
 class DummyVar:
