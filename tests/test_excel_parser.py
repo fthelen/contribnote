@@ -43,6 +43,17 @@ class TestSecurityRow:
         )
         assert row.is_cash_or_fee() is True
 
+    def test_is_cash_or_fee_with_dash_gics(self):
+        """Should identify em dash GICS as cash/fee row."""
+        row = SecurityRow(
+            ticker="CASH",
+            security_name="Cash",
+            port_ending_weight=1.0,
+            contribution_to_return=0.0,
+            gics="—"
+        )
+        assert row.is_cash_or_fee() is True
+
     def test_is_cash_or_fee_with_valid_gics(self):
         """Should not identify valid GICS as cash/fee row."""
         row = SecurityRow(

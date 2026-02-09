@@ -27,7 +27,7 @@ class SecurityRow:
     
     def is_cash_or_fee(self) -> bool:
         """Check if this row is cash or fees (GICS == 'NA')."""
-        return self.gics == "NA" or self.gics is None
+        return self.gics in {"NA", "—"} or self.gics is None
 
 
 @dataclass
@@ -152,14 +152,21 @@ def _parse_attribution_sheet(
     candidate_rows: list[tuple[int, AttributionRow]] = []
     total_row: Optional[AttributionRow] = None
 
+    seen_data = False
     for row_num in range(8, ws.max_row + 1):
         category_raw = ws.cell(row=row_num, column=1).value
         if category_raw is None:
+            if seen_data:
+                break
             continue
 
         category = str(category_raw).strip()
         if not category:
+            if seen_data:
+                break
             continue
+
+        seen_data = True
 
         row_dim = ws.row_dimensions.get(row_num)
         outline_level = row_dim.outlineLevel if row_dim is not None else 0
