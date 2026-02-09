@@ -269,7 +269,8 @@ class TestProcessPortfolio:
             make_security("C", -0.20),
             make_security("D", -0.10),
             make_security("FEE", -0.01, gics="NA"),  # Should be filtered
-            make_security("CASH2", -0.05, gics="--"),  # Should be filtered
+            make_security("CASH2", 0.0, gics="--"),  # Should be filtered
+        ]
         ]
         portfolio = make_portfolio(securities)
         
