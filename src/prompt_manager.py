@@ -44,9 +44,11 @@ Focus on:
 - The main sector or country winners and laggards relevant to portfolio attribution
 - Portfolio versus benchmark direction and relative outcome
 - The primary allocation and selection drivers shown in the attribution inputs
+- DO NOT mention Cash or Fees as attribution drivers, even if they are material contributors in the attribution context.
 
 Requirements:
 - Write exactly ONE paragraph (9-12 sentences) with natural transitions
+- Only 1-2 senteces on relative performance.
 - Keep the prose cohesive and continuous; do not use headings, labels, bullets, or line breaks
 - Do not add notes, disclaimers, or postscript text
 - Use plain, client-facing language and avoid jargon
@@ -214,12 +216,129 @@ class AttributionPromptManager:
 def get_default_preferred_sources() -> list[str]:
     """Return a default list of reputable financial news sources."""
     return [
-        "reuters.com",
-        "bloomberg.com",
-        "wsj.com",
-        "ft.com",
-        "cnbc.com",
-        "seekingalpha.com",
-        "marketwatch.com",
-        "finance.yahoo.com"
-    ]
+    # Global wire + business press
+    "reuters.com",
+    "bloomberg.com",
+    "wsj.com",
+    "ft.com",
+    "economist.com",
+    "theinformation.com",
+    "nikkei.com",
+    "asia.nikkei.com",
+    "barrons.com",
+    "forbes.com",
+    "fortune.com",
+    "businessinsider.com",
+    "cnbc.com",
+    "foxbusiness.com",
+
+    # Market data, terminals, and reference
+    "tradingeconomics.com",
+    "lseg.com",                  # London Stock Exchange Group
+    "spglobal.com",              # S&P Global / ratings / data
+    "moodys.com",
+    "fitchratings.com",
+    "morningstar.com",
+    "factset.com",
+    "refinitiv.com",
+    "mscI.com".lower().replace("i", "i"),  # no-op; keeps list strictly strings
+    "worldbank.org",
+    "imf.org",
+    "oecd.org",
+    "bis.org",
+    "ecb.europa.eu",
+    "bankofengland.co.uk",
+    "federalreserve.gov",
+    "bea.gov",                   # US GDP, income, etc.
+    "bls.gov",                   # US inflation/jobs
+    "census.gov",
+
+    # Company filings and corporate disclosures
+    "sec.gov",
+    "edgar.sec.gov",
+    "companieshouse.gov.uk",     # UK filings
+    "sedarplus.ca",              # Canada filings
+    "asx.com.au",
+    "hkexnews.hk",
+    "jpx.co.jp",
+    "sgx.com",
+    "eur-lex.europa.eu",         # EU regs/directives
+
+    # Energy, commodities, shipping, and supply chain
+    "spglobal.com/commodityinsights",
+    "iea.org",
+    "eia.gov",
+    "opec.org",
+    "argusmedia.com",
+    "platts.com",
+    "woodmac.com",
+    "bimco.org",
+    "clarksons.com",
+    "freightwaves.com",
+
+    # Tech/business strategy (useful for macro + sector commentary)
+    "theverge.com",
+    "wired.com",
+    "technologyreview.com",
+    "stratechery.com",
+    "substack.com",
+
+    # Long-form analysis / think tanks
+    "brookings.edu",
+    "piie.com",
+    "chathamhouse.org",
+    "csis.org",
+    "cfr.org",
+
+    # US-focused but still widely cited
+    "nytimes.com",
+    "washingtonpost.com",
+    "apnews.com",
+    "theguardian.com",
+    "latimes.com",
+
+    # Europe
+    "handelsblatt.com",          # Germany
+    "lesechos.fr",               # France
+    "lemonde.fr",
+    "ilsole24ore.com",           # Italy
+    "elmundo.es",                # Spain
+    "expansion.com",             # Spain business
+    "thelocal.com",
+    "dw.com",
+
+    # Asia-Pacific
+    "scmp.com",                  # Hong Kong / China coverage
+    "thehindu.com",
+    "livemint.com",
+    "theaustralian.com.au",
+    "afr.com",                   # Australian Financial Review
+    "straitstimes.com",
+    "channelnewsasia.com",
+    "koreajoongangdaily.joins.com",
+    "koreaherald.com",
+
+    # Middle East / Africa / LatAm
+    "arabnews.com",
+    "thenationalnews.com",
+    "aljazeera.com",
+    "mg.co.za",                  # South Africa
+    "dailymaverick.co.za",
+    "valor.globo.com",           # Brazil business
+    "folha.uol.com.br",
+    "reforma.com",               # Mexico (El Financiero alternatives exist too)
+    "eleconomista.com.mx",
+
+    # Investor/markets commentary
+    "seekingalpha.com",
+    "marketwatch.com",
+    "finance.yahoo.com",
+    "investing.com",
+    "tipranks.com",
+    "themotleyfool.com",
+
+    # Crypto / digital assets (if relevant)
+    "coindesk.com",
+    "cointelegraph.com",
+    "theblock.co",
+]
