@@ -241,7 +241,7 @@ def get_default_preferred_sources() -> list[str]:
     "morningstar.com",
     "factset.com",
     "refinitiv.com",
-    "mscI.com".lower().replace("i", "i"),  # no-op; keeps list strictly strings
+    "msci.com",
     "worldbank.org",
     "imf.org",
     "oecd.org",
