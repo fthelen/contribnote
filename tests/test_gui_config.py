@@ -140,7 +140,7 @@ def test_validate_inputs_rejects_invalid_preferred_sources(tmp_path, monkeypatch
     monkeypatch.setattr(
         gui_module.messagebox,
         "showerror",
-        lambda title, message: error_calls.append((title, message)),
+        lambda title, message, **kwargs: error_calls.append((title, message)),
     )
 
     assert app.validate_inputs() is False

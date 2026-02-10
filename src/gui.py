@@ -1405,7 +1405,7 @@ class CommentaryGeneratorApp:
             messagebox.showerror(
                 "Error",
                 "Please fix invalid preferred source domains before running.",
-                parent=self.root,
+                parent=getattr(self, 'root', None),
             )
             return False
 
@@ -1883,12 +1883,12 @@ class CommentaryGeneratorApp:
                 f"Output file:\n{result['output_path']}\n\n"
                 f"Log file:\n{result['log_path']}"
             )
-            messagebox.showinfo("Success", message, parent=self.root)
+            messagebox.showinfo("Success", message, parent=getattr(self, 'root', None))
         except Exception as e:
             messagebox.showerror(
                 "Error",
                 f"Generation finished but failed to display completion details:\n\n{e}",
-                parent=self.root,
+                parent=getattr(self, 'root', None),
             )
         finally:
             self.status_var.set("Ready")
