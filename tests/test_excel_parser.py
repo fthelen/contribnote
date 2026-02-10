@@ -54,6 +54,17 @@ class TestSecurityRow:
         )
         assert row.is_cash_or_fee() is True
 
+    def test_is_cash_or_fee_with_double_dash_gics(self):
+        """Should identify double dash GICS as cash/fee row."""
+        row = SecurityRow(
+            ticker="CASH",
+            security_name="Cash",
+            port_ending_weight=1.0,
+            contribution_to_return=0.0,
+            gics="--"
+        )
+        assert row.is_cash_or_fee() is True
+
     def test_is_cash_or_fee_with_valid_gics(self):
         """Should not identify valid GICS as cash/fee row."""
         row = SecurityRow(
@@ -77,6 +88,7 @@ class TestPortfolioData:
             SecurityRow("AAPL", "Apple Inc.", 5.0, 0.15, "Information Technology"),
             SecurityRow("FEE_USD", "Fee", 0.0, -0.01, "NA"),
             SecurityRow("MSFT", "Microsoft Corp.", 4.0, 0.10, "Information Technology"),
+            SecurityRow("CASH2", "Cash", 1.0, 0.0, "--"),
             SecurityRow("CASH", "Cash", 1.0, 0.0, None),
         ]
         portfolio = PortfolioData(

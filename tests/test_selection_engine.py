@@ -269,6 +269,7 @@ class TestProcessPortfolio:
             make_security("C", -0.20),
             make_security("D", -0.10),
             make_security("FEE", -0.01, gics="NA"),  # Should be filtered
+            make_security("CASH2", -0.05, gics="--"),  # Should be filtered
         ]
         portfolio = make_portfolio(securities)
         
@@ -284,6 +285,7 @@ class TestProcessPortfolio:
         # Then detractors
         assert result.ranked_securities[2].ticker == "C"
         assert result.ranked_securities[3].ticker == "D"
+        assert "CASH2" not in {sec.ticker for sec in result.ranked_securities}
 
     def test_all_holdings_mode(self):
         """Should process portfolio in ALL_HOLDINGS mode."""
@@ -291,6 +293,7 @@ class TestProcessPortfolio:
             make_security("A", 0.25),
             make_security("B", -0.15),
             make_security("CASH", 0.0, gics="NA"),  # Should be filtered
+            make_security("CASH2", 0.0, gics="--"),  # Should be filtered
         ]
         portfolio = make_portfolio(securities)
         

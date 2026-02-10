@@ -26,8 +26,8 @@ class SecurityRow:
     gics: str
     
     def is_cash_or_fee(self) -> bool:
-        """Check if this row is cash or fees (GICS == 'NA')."""
-        return self.gics in {"NA", "—"} or self.gics is None
+        """Check if this row is cash or fees (GICS == 'NA' or dash markers)."""
+        return self.gics in {"NA", "—", "--"} or self.gics is None
 
 
 @dataclass
