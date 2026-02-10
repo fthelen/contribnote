@@ -277,7 +277,7 @@ class TestProcessPortfolio:
         
         assert result.portcode == "TEST"
         assert result.mode == SelectionMode.TOP_BOTTOM
-        # Should have 2 contributors + 2 detractors (FEE filtered out)
+        # Should have 2 contributors + 2 detractors (FEE/CASH2 filtered out)
         assert len(result.ranked_securities) == 4
         # Contributors first
         assert result.ranked_securities[0].ticker == "A"
@@ -299,7 +299,7 @@ class TestProcessPortfolio:
         result = process_portfolio(portfolio, SelectionMode.ALL_HOLDINGS)
         
         assert result.mode == SelectionMode.ALL_HOLDINGS
-        assert len(result.ranked_securities) == 2  # CASH filtered out
+        assert len(result.ranked_securities) == 2  # CASH/CASH2 filtered out
         # All ranks should be None
         for sec in result.ranked_securities:
             assert sec.rank is None

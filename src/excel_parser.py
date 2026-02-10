@@ -23,11 +23,13 @@ class SecurityRow:
     security_name: str
     port_ending_weight: float
     contribution_to_return: float
-    gics: str
+    gics: Optional[str]
     
     def is_cash_or_fee(self) -> bool:
         """Check if this row is cash or fees (GICS == 'NA' or dash markers)."""
-        return self.gics in {"NA", "—", "--"} or self.gics is None
+        if self.gics is None:
+            return True
+        return self.gics in {"NA", "—", "--"}
 
 
 @dataclass
