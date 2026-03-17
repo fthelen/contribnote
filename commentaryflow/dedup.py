@@ -368,7 +368,10 @@ def _get_period_for_ticker(ticker: str, to_generate: list[tuple]) -> str:
 def _normalize_period(period: str) -> str:
     """Turn 'Q4 2025', '2025-Q4', or '12/31/2025 to 1/28/2026' into URL-safe IDs."""
     import re
-    return re.sub(r"[^A-Za-z0-9]", "", period).upper()
+    normalised = re.sub(r"[^A-Za-z0-9]", "", period).upper()
+    if not normalised:
+        raise ValueError(f"Period '{period}' normalises to empty string — cannot build commentary ID")
+    return normalised
 
 
 def _build_citation_records(raw_cits: list[dict], commentary_id: str,

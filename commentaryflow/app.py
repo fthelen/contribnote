@@ -877,7 +877,7 @@ async def _run_generation_task(
         ])
 
         def progress_cb(msg: str):
-            asyncio.get_event_loop().call_soon_threadsafe(
+            asyncio.get_running_loop().call_soon_threadsafe(
                 queue.put_nowait, {"type": "progress", "message": msg}
             )
 
@@ -957,13 +957,14 @@ async def _run_generation_task(
         _cleanup_stuck_commentaries(run_id, "cancelled")
         db.update_batch_run(run_id, status="cancelled")
         await emit("cancelled")
+        raise  # re-raise so finally doesn't overwrite "cancelled" → "error"
     except Exception as e:
         logger.exception(f"Run {run_id} failed: {e}")
         _cleanup_stuck_commentaries(run_id, "error")
         db.update_batch_run(run_id, status="failed")
         await emit("error", message=str(e))
     finally:
-        # Final safety net: any still-generating commentaries → error
+        # Safety net: any commentaries still in 'generating' (e.g. from Exception path) → error
         _cleanup_stuck_commentaries(run_id, "error")
         _cancel_events.pop(run_id, None)
 

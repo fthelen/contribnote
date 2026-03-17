@@ -237,10 +237,9 @@ class TestGenerationPipeline:
         for s in security_sections:
             assert "failed" in s["bronze_text"].lower() or "not generated" in s["bronze_text"].lower()
 
-    @patch("commentaryflow.dedup.OpenAIClient")
     @patch("commentaryflow.app.exp.save_bronze_json")
     def test_overview_failure_still_completes(
-        self, mock_save, MockClient, test_client, writer_token, fixture_dir
+        self, mock_save, test_client, writer_token, fixture_dir
     ):
         """Overview fails but security tickers succeed → commentary still 'draft'."""
         class OverviewFailClient:
@@ -260,9 +259,6 @@ class TestGenerationPipeline:
                     output="", citations=[],
                     success=False, error_message="Overview LLM error",
                 ) for req in requests]
-
-        MockClient.side_effect = lambda **kw: OverviewFailClient(**kw)
-        MockClient.return_value = OverviewFailClient()
 
         _set_api_key()
         with patch("commentaryflow.dedup.OpenAIClient", OverviewFailClient):
