@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CommentaryFlow</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <!-- Quill rich text editor -->
+  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet" />
+  <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+</head>
+<body>
+
+<!-- =====================================================================
+     LOGIN SCREEN
+     ===================================================================== -->
+<div id="login-screen" class="screen active">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark">CF</div>
+      <h1>CommentaryFlow</h1>
+      <p>Portfolio Commentary Pipeline</p>
+    </div>
+    <form id="login-form" autocomplete="on">
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" type="text" autocomplete="username" placeholder="writer1" />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+  </div>
+</div>
+
+<!-- =====================================================================
+     MAIN APP SHELL
+     ===================================================================== -->
+<div id="app-shell" class="screen hidden">
+
+  <!-- Top nav bar -->
+  <nav class="topnav">
+    <div class="topnav-left">
+      <span class="topnav-logo">CommentaryFlow</span>
+    </div>
+    <div class="topnav-center">
+      <!-- Portfolio tabs (shown when in document view) -->
+      <div id="portfolio-tabs" class="portfolio-tabs hidden"></div>
+    </div>
+    <div class="topnav-right">
+      <button id="btn-search" class="nav-icon-btn" title="Search (⌘K)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="btn-settings" class="nav-icon-btn" title="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M11.54 4.46l-1.41 1.41M4.95 11.54l-1.41 1.41" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div id="user-badge" class="user-badge">
+        <span id="user-initials"></span>
+        <span id="user-display-name"></span>
+        <span id="user-role-badge" class="role-badge"></span>
+      </div>
+      <button id="btn-logout" class="nav-icon-btn" title="Sign out">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6 2H2v12h4M10 11l4-3-4-3M6 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Page container (swaps between dashboard and document view) -->
+  <main id="page-container">
+
+    <!-- ===== WRITER DASHBOARD ===== -->
+    <div id="page-dashboard" class="page active">
+
+      <!-- Zone 1: Active work -->
+      <section class="dash-zone" id="zone-active">
+        <div class="zone-header">
+          <h2 id="active-period-label">Loading…</h2>
+          <span id="active-portfolio-count" class="zone-meta"></span>
+        </div>
+        <div id="portfolio-grid" class="portfolio-grid"></div>
+        <div id="zone-empty" class="zone-empty hidden">
+          <p>No active commentaries. Upload Excel files below to get started.</p>
+        </div>
+      </section>
+
+      <!-- Zone 2: History (collapsed) -->
+      <section class="dash-zone" id="zone-history">
+        <div class="zone-header collapsible" id="history-toggle">
+          <h2>Previous periods</h2>
+          <svg class="chevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div id="history-content" class="history-content collapsed">
+          <table class="history-table">
+            <thead><tr><th>Period</th><th>Portfolios</th><th>Published</th><th></th></tr></thead>
+            <tbody id="history-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Zone 3: Upload -->
+      <section class="dash-zone" id="zone-upload">
+        <div class="zone-header">
+          <h2>Upload files</h2>
+        </div>
+        <div id="upload-area" class="upload-area">
+          <div class="upload-drop-target" id="drop-zone">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <path d="M16 22V10M10 16l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="4" y="22" width="24" height="6" rx="2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <p>Drop FactSet Excel files here, or <label for="file-input" class="link-label">browse</label></p>
+            <p class="upload-hint">One Excel per portfolio. Optionally include a PM survey file.</p>
+            <input type="file" id="file-input" accept=".xlsx,.xls" multiple hidden />
+          </div>
+
+          <!-- Staged files list -->
+          <div id="staged-files" class="staged-files hidden"></div>
+
+          <!-- Generation settings -->
+          <div id="gen-settings" class="gen-settings hidden">
+            <div class="settings-row">
+              <label>Selection Mode
+                <select id="sel-mode">
+                  <option value="top_bottom">Top/Bottom N</option>
+                  <option value="all_holdings">All Holdings</option>
+                </select>
+              </label>
+              <label id="top-n-label">N =
+                <input type="number" id="top-n" value="5" min="1" max="20" style="width:60px"/>
+              </label>
+              <label>
+                <input type="checkbox" id="include-overview" checked /> Attribution overview
+              </label>
+              <label class="survey-label">
+                PM Survey (optional):
+                <input type="file" id="survey-input" accept=".xlsx,.xls" />
+              </label>
+            </div>
+            <div class="upload-actions">
+              <button id="btn-clear-files" class="btn btn-ghost">Clear</button>
+              <button id="btn-start-gen" class="btn btn-primary">Start Generation</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- COMPLIANCE QUEUE (shown for reviewer role) -->
+      <section class="dash-zone hidden" id="zone-queue">
+        <div class="zone-header">
+          <h2>Review queue</h2>
+          <span id="queue-count" class="zone-meta"></span>
+        </div>
+        <table class="queue-table">
+          <thead><tr><th>Portfolio</th><th>Period</th><th>Submitted</th><th>Sections</th><th></th></tr></thead>
+          <tbody id="queue-tbody"></tbody>
+        </table>
+      </section>
+
+    </div><!-- /page-dashboard -->
+
+
+    <!-- ===== DOCUMENT VIEW ===== -->
+    <div id="page-document" class="page hidden">
+
+      <div class="doc-layout">
+
+        <!-- Left nav rail -->
+        <aside class="doc-nav-rail" id="doc-nav-rail">
+          <div id="doc-nav-sections"></div>
+        </aside>
+
+        <!-- Document canvas -->
+        <div class="doc-canvas" id="doc-canvas">
+
+          <!-- Letterhead zone (non-editable) -->
+          <div class="letterhead-zone" id="letterhead-zone">
+            <div class="letterhead-content">
+              <div id="lh-portcode" class="lh-portcode"></div>
+              <div id="lh-period" class="lh-period"></div>
+              <div id="lh-status-badge" class="lh-status-badge"></div>
+            </div>
+          </div>
+
+          <!-- Sections flow -->
+          <div id="sections-container"></div>
+
+          <!-- Document actions bar -->
+          <div class="doc-actions" id="doc-actions">
+            <div id="doc-actions-writer" class="hidden">
+              <button id="btn-back-dashboard" class="btn btn-ghost">← Dashboard</button>
+              <button id="btn-submit-review" class="btn btn-primary">Submit for Review</button>
+            </div>
+            <div id="doc-actions-reviewer" class="hidden">
+              <button id="btn-back-dashboard-r" class="btn btn-ghost">← Dashboard</button>
+              <button id="btn-approve-doc" class="btn btn-success">Approve Document</button>
+              <button id="btn-reject-doc" class="btn btn-danger-outline">Request Revision</button>
+            </div>
+          </div>
+
+        </div><!-- /doc-canvas -->
+
+        <!-- Prior period drawer -->
+        <div class="prior-period-drawer" id="prior-period-drawer">
+          <div class="drawer-toggle" id="drawer-toggle">
+            <span id="drawer-label">Prior period</span>
+            <svg class="chevron-h" width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M8 2L4 6l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="drawer-content hidden" id="drawer-content">
+            <div id="prior-period-text" class="prior-period-text"></div>
+          </div>
+        </div>
+
+      </div><!-- /doc-layout -->
+
+    </div><!-- /page-document -->
+
+  </main>
+</div><!-- /app-shell -->
+
+
+<!-- =====================================================================
+     MODALS
+     ===================================================================== -->
+
+<!-- Settings modal -->
+<div id="modal-settings" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Settings</h3>
+      <button class="modal-close" data-close="modal-settings">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>OpenAI API Key</label>
+        <input type="password" id="s-api-key" placeholder="sk-…" autocomplete="off" />
+        <span id="s-api-key-status" class="field-hint"></span>
+      </div>
+      <div class="field">
+        <label>Default Model</label>
+        <select id="s-model">
+          <option value="gpt-5.2-2025-12-11">gpt-5.2 (recommended)</option>
+          <option value="gpt-5.2-pro-2025-12-11">gpt-5.2-pro</option>
+          <option value="gpt-5-nano-2025-08-07">gpt-5-nano (fast)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Reasoning Level</label>
+        <select id="s-thinking">
+          <option value="none">None</option>
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="xhigh">Extra High</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Text Verbosity</label>
+        <select id="s-verbosity">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>
+          <input type="checkbox" id="s-web-search" checked /> Enable web search
+        </label>
+      </div>
+      <div class="field">
+        <label>
+          <input type="checkbox" id="s-require-cits" checked /> Require citations
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-settings">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-settings">Save settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- Search modal (Cmd+K) -->
+<div id="modal-search" class="modal-overlay hidden">
+  <div class="modal-box modal-search-box">
+    <input id="search-input" type="text" placeholder="Search portfolios, tickers, periods…" autofocus />
+    <div id="search-results" class="search-results"></div>
+  </div>
+</div>
+
+<!-- Reject / request revision modal -->
+<div id="modal-reject" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Request Revision</h3>
+      <button class="modal-close" data-close="modal-reject">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Notes for the writer</label>
+        <textarea id="reject-note" rows="4" placeholder="Describe what needs to change…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-reject">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-reject">Request Revision</button>
+    </div>
+  </div>
+</div>
+
+<!-- Copy to portfolios modal -->
+<div id="modal-copy-to" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>Copy Silver edit to portfolios</h3>
+      <button class="modal-close" data-close="modal-copy-to">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-desc">Select portfolios to receive this Silver edit:</p>
+      <div id="copy-to-portfolio-list" class="copy-to-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-copy-to">Dismiss</button>
+      <button class="btn btn-primary" id="btn-confirm-copy-to">Copy to selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generation progress modal -->
+<div id="modal-progress" class="modal-overlay hidden">
+  <div class="modal-box modal-progress-box">
+    <div class="modal-header">
+      <h3>Generating commentary…</h3>
+    </div>
+    <div class="modal-body">
+      <div id="progress-stats" class="progress-stats"></div>
+      <div id="progress-messages" class="progress-messages"></div>
+      <div id="progress-portfolio-cards" class="progress-portfolio-cards"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger-outline" id="btn-cancel-gen">Cancel generation</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
