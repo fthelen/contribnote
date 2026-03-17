@@ -63,5 +63,4 @@ commentaryflow/commentaryflow.db
 commentaryflow/commentaryflow.db-shm
 commentaryflow/commentaryflow.db-wal
 commentaryflow/output/
-.env.example
-.env.example
+
