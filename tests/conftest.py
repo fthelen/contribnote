@@ -3,7 +3,6 @@ Shared fixtures for CommentaryFlow integration tests.
 """
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,15 +16,23 @@ def tmp_db(monkeypatch):
     from commentaryflow import db
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
-    monkeypatch.setattr(db, "DB_PATH", Path(tmp.name))
+    db_path = Path(tmp.name)
+    monkeypatch.setattr(db, "DB_PATH", db_path)
     db.init_db()
-    yield Path(tmp.name)
-    Path(tmp.name).unlink(missing_ok=True)
+    yield db_path
+    # Clean up main DB file and SQLite WAL sidecars
+    for suffix in ("", "-wal", "-shm"):
+        Path(tmp.name + suffix).unlink(missing_ok=True)
 
 
 @pytest.fixture()
 def test_client(tmp_db):
-    """FastAPI TestClient with isolated DB (startup event skipped — tmp_db already inits)."""
+    """FastAPI TestClient with isolated DB per test.
+
+    TestClient runs startup/shutdown lifespan events. The startup event calls
+    db.init_db() (idempotent) and recovers stuck-generating commentaries from
+    any previous session — both are safe on a fresh tmp_db.
+    """
     from commentaryflow.app import app
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client

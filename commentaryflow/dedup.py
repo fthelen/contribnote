@@ -130,6 +130,7 @@ async def run_generation_pipeline(
                 "security_name": security_name,
                 "prompt": prompt,
                 "portcode": "POOL",
+                "_period": period,  # carried through for pool-key lookup
             })
 
         results: list[CommentaryResult] = await client.generate_commentary_batch(
@@ -141,9 +142,10 @@ async def run_generation_pipeline(
             cancel_event=cancel_event,
         )
 
-        # Store results in ticker pool
-        for result in results:
-            key = (result.ticker, _get_period_for_ticker(result.ticker, to_generate), config_hash)
+        # Store results in ticker pool — match by index so cross-period ticker
+        # collisions (same ticker in multiple periods) are handled correctly.
+        for result, req in zip(results, requests):
+            key = (result.ticker, req["_period"], config_hash)
             if result.success:
                 citations_json = json.dumps([
                     {"url": c.url, "title": c.title} for c in result.citations

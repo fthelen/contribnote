@@ -448,7 +448,7 @@ def approve_section(commentary_id: str, section_key: str, approved_by: str):
             "SELECT silver_text, bronze_text FROM commentary_sections WHERE commentary_id=? AND section_key=?",
             (commentary_id, section_key)
         ).fetchone()
-        gold_text = row["silver_text"] or row["bronze_text"] if row else None
+        gold_text = (row["silver_text"] or row["bronze_text"]) if row else None
         conn.execute(
             """UPDATE commentary_sections
                SET gold_text=?, status='approved', approved_at=?
