@@ -190,7 +190,7 @@ def _seed_users(conn):
 def _seed_settings(conn):
     defaults = {
         "openai_api_key": "",
-        "default_model": "gpt-5.2-2025-12-11",
+        "default_model": "gpt-4o",
         "thinking_level": "medium",
         "text_verbosity": "medium",
         "selection_mode": "top_bottom",
@@ -348,7 +348,8 @@ def get_commentary(commentary_id: str) -> dict | None:
 
 
 def list_commentaries(status_filter: str | None = None,
-                      period_filter: str | None = None) -> list[dict]:
+                      period_filter: str | None = None,
+                      batch_run_id_filter: str | None = None) -> list[dict]:
     with get_conn() as conn:
         sql = "SELECT * FROM portfolio_commentary WHERE 1=1"
         params = []
@@ -358,6 +359,9 @@ def list_commentaries(status_filter: str | None = None,
         if period_filter:
             sql += " AND period_label = ?"
             params.append(period_filter)
+        if batch_run_id_filter:
+            sql += " AND batch_run_id = ?"
+            params.append(batch_run_id_filter)
         sql += " ORDER BY created_at DESC"
         rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]

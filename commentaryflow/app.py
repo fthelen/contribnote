@@ -59,6 +59,13 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.on_event("startup")
 async def startup():
     db.init_db()
+    # Recover any commentaries stuck in 'generating' from a previous crashed/killed session
+    stuck = db.list_commentaries(status_filter="generating")
+    for c in stuck:
+        db.update_commentary_status(c["commentary_id"], "error")
+        logger.warning(f"Recovered stuck commentary {c['commentary_id']} → error")
+    if stuck:
+        logger.info(f"Recovered {len(stuck)} stuck commentary(s) from previous session")
     logger.info("CommentaryFlow started. DB initialized.")
 
 
@@ -76,14 +83,6 @@ _cancel_events: dict[str, asyncio.Event] = {}
 
 @app.get("/")
 async def serve_spa():
-    return FileResponse(str(STATIC_DIR / "index.html"))
-
-
-@app.get("/{full_path:path}")
-async def serve_spa_routes(full_path: str):
-    # Don't intercept /api, /auth, /static paths
-    if full_path.startswith(("api/", "auth/", "static/")):
-        raise HTTPException(404)
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
@@ -816,6 +815,11 @@ async def upload_survey(
         raise HTTPException(500, f"Outlook generation failed: {result['error']}")
 
 
+@app.get("/{full_path:path}")
+async def serve_spa_routes(full_path: str):
+    return FileResponse(str(STATIC_DIR / "index.html"))
+
+
 # ---------------------------------------------------------------------------
 # Background task: generation pipeline
 # ---------------------------------------------------------------------------
@@ -835,9 +839,16 @@ async def _run_generation_task(
 
     try:
         await emit("status", message="Parsing Excel files…")
-        portfolios = parse_multiple_files(file_paths)
+        try:
+            portfolios = parse_multiple_files(file_paths)
+        except Exception as parse_err:
+            logger.exception(f"Run {run_id}: Excel parse error: {parse_err}")
+            db.update_batch_run(run_id, status="failed")
+            await emit("error", message=f"Failed to parse uploaded files: {parse_err}")
+            return
         if not portfolios:
             await emit("error", message="No portfolios parsed from uploaded files")
+            db.update_batch_run(run_id, status="failed")
             return
 
         db.update_batch_run(run_id, total_portfolios=len(portfolios))
@@ -876,7 +887,7 @@ async def _run_generation_task(
             batch_run_id=run_id,
             source_files=source_files,
             api_key=api_key,
-            progress_callback=None,
+            progress_callback=progress_cb,
             cancel_event=cancel_event,
         )
 
@@ -943,14 +954,26 @@ async def _run_generation_task(
         await emit("done", completed=completed, errors=errors_total)
 
     except asyncio.CancelledError:
+        _cleanup_stuck_commentaries(run_id, "cancelled")
         db.update_batch_run(run_id, status="cancelled")
         await emit("cancelled")
     except Exception as e:
         logger.exception(f"Run {run_id} failed: {e}")
+        _cleanup_stuck_commentaries(run_id, "error")
         db.update_batch_run(run_id, status="failed")
         await emit("error", message=str(e))
     finally:
+        # Final safety net: any still-generating commentaries → error
+        _cleanup_stuck_commentaries(run_id, "error")
         _cancel_events.pop(run_id, None)
+
+
+def _cleanup_stuck_commentaries(run_id: str, target_status: str):
+    """Move any commentaries still in 'generating' for this run to target_status."""
+    stuck = db.list_commentaries(status_filter="generating", batch_run_id_filter=run_id)
+    for c in stuck:
+        db.update_commentary_status(c["commentary_id"], target_status)
+        logger.warning(f"Cleaned up stuck commentary {c['commentary_id']} → {target_status}")
 
 
 # ---------------------------------------------------------------------------
@@ -966,14 +989,12 @@ def _build_generation_settings(app_settings: dict, overrides: dict) -> Generatio
 
     preferred_sources = get_default_preferred_sources()
     prompt_config = PromptConfig(
-        template=None,
         preferred_sources=preferred_sources,
         additional_instructions=get("additional_instructions"),
         thinking_level=get("thinking_level", "medium"),
         prioritize_sources=True,
     )
     attrib_config = AttributionPromptConfig(
-        template=None,
         preferred_sources=preferred_sources,
         additional_instructions=get("additional_instructions"),
         thinking_level=get("thinking_level", "medium"),
@@ -981,7 +1002,7 @@ def _build_generation_settings(app_settings: dict, overrides: dict) -> Generatio
     )
 
     return GenerationSettings(
-        model=get("default_model", "gpt-5.2-2025-12-11"),
+        model=get("default_model", "gpt-4o"),
         thinking_level=get("thinking_level", "medium"),
         text_verbosity=get("text_verbosity", "medium"),
         require_citations=get("require_citations", "true").lower() == "true",

@@ -115,7 +115,7 @@ async def run_generation_pipeline(
     client = OpenAIClient(
         api_key=api_key,
         model=settings.model,
-        progress_callback=lambda r: emit(f"  [{r.ticker}] {r.security_name} ✓" if r.success else f"  [{r.ticker}] ERROR"),
+        progress_callback=lambda ticker, completed, total: emit(f"  [{ticker}] {completed}/{total}"),
     )
 
     pm = PromptManager(config=settings.prompt_config)
@@ -160,6 +160,7 @@ async def run_generation_pipeline(
                 pool_entries[key] = db.get_ticker_pool_entry(result.ticker, key[1], config_hash)
             else:
                 db.mark_ticker_pool_failed(result.ticker, key[1], config_hash)
+                logger.warning(f"Ticker generation failed: {result.ticker} — {result.error_message}")
 
     # ---- Phase 4b: Attribution overviews (per portfolio, not deduplicated) --
     overview_results: dict[str, dict] = {}
@@ -196,6 +197,8 @@ async def run_generation_pipeline(
             cancel_event=cancel_event,
         )
         for ov in ov_results:
+            if not ov.success:
+                logger.warning(f"Overview generation failed: {ov.portcode} — {ov.error_message}")
             overview_results[ov.portcode] = {
                 "text": ov.output if ov.success else None,
                 "citations": [{"url": c.url, "title": c.title} for c in ov.citations] if ov.success else [],
@@ -363,8 +366,9 @@ def _get_period_for_ticker(ticker: str, to_generate: list[tuple]) -> str:
 
 
 def _normalize_period(period: str) -> str:
-    """Turn 'Q4 2025' or '2025-Q4' into 'Q42025' for use in IDs."""
-    return period.replace(" ", "").replace("-", "").upper()
+    """Turn 'Q4 2025', '2025-Q4', or '12/31/2025 to 1/28/2026' into URL-safe IDs."""
+    import re
+    return re.sub(r"[^A-Za-z0-9]", "", period).upper()
 
 
 def _build_citation_records(raw_cits: list[dict], commentary_id: str,
