@@ -58,12 +58,7 @@ Icon?
 *.crt
 *.cer
 
-# Local DBs
-*.sqlite
-*.sqlite3
-*.db
-
-.github/
+# CommentaryFlow runtime data (not committed)
 commentaryflow/commentaryflow.db
 commentaryflow/commentaryflow.db-shm
 commentaryflow/commentaryflow.db-wal
