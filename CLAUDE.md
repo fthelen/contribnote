@@ -47,6 +47,9 @@ tests/
 - Do NOT use `passlib[bcrypt]` — incompatible with bcrypt>=4.x. Use `bcrypt` directly.
 - Web search + JSON mode cannot be combined (OpenAI API limitation) — always plain text output.
 - GICS == "NA", "—", or "--" → cash/fee row → always filtered out before generation.
+- `commentary_id` = `{portcode}_{normalized_period}` — must be URL-safe; `_normalize_period()` strips all non-alphanumeric chars
+- FactSet period strings are date ranges (e.g. `12/31/2025 to 1/28/2026`), not quarter labels — they contain `/` and `to`
+- `.env.example` is gitignored (no `!` exception) — do not re-add it to tracking
 
 ## Auth / users
 - Default seed users (created on first `db.init_db()`):
@@ -64,3 +67,4 @@ tests/
 - `commentaryflow` = this app (soft fork, standalone going forward)
 - New feature branches: cut from `commentaryflow`, e.g. `git checkout -b feature/my-thing commentaryflow`
 - PRs target `commentaryflow`, never `main`
+- NEVER commit feature work directly to `commentaryflow` — always use a feature branch + PR
