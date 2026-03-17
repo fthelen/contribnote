@@ -62,3 +62,5 @@ tests/
 ## Branching
 - `main` = Contribnote desktop app (do not merge into)
 - `commentaryflow` = this app (soft fork, standalone going forward)
+- New feature branches: cut from `commentaryflow`, e.g. `git checkout -b feature/my-thing commentaryflow`
+- PRs target `commentaryflow`, never `main`
